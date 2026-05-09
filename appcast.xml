@@ -114,7 +114,7 @@
                 <ul>
                     <li>优化：全屏鼠标指针隐藏</li>
                     <li>优化：弹幕边框颜色随透明度设置变化</li>
-                    <li>优化：隐藏斗鱼机器人弹幕</li>
+                    <li>优化：弹幕过滤策略</li>
                 </ul>
                 <p><strong>如遇到自动更新失败，请手动下载：</strong><a href="https://github.com/pcccccc/AngelLive/releases/download/v2.0.0/Angel.Live.2.0.0.universal.build19.dmg">点击下载</a></p>
             ]]></description>
@@ -206,7 +206,7 @@
             <description><![CDATA[
                 <h2>更新内容</h2>
                 <ul>
-                    <li>修复虎牙播放问题</li>
+                    <li>修复部分播放问题</li>
                     <li>适配 Intel Mac</li>
                 </ul>
                 <p><strong>如遇到自动更新失败，请手动下载：</strong><a href="https://github.com/pcccccc/AngelLive/releases/download/v2.0.0/Angel.Live.2.0.0.Universal.Ver14.dmg">点击下载</a></p>

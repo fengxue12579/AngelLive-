@@ -1,10 +1,3 @@
-////
-////  BiliBiliMainView.swift
-////  SimpleLiveTVOS
-////
-////  Created by pangchong on 2023/9/14.
-////
-
 import SwiftUI
 import GameController
 import AngelLiveDependencies

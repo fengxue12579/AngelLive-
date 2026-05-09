@@ -288,15 +288,6 @@
         "revision" : "3680f532c00d18a168bb8da7b9f8f82fcd89180d",
         "version" : "5.0.5"
       }
-    },
-    {
-      "identity" : "youtubekit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pcccccc/YouTubeKit",
-      "state" : {
-        "revision" : "19f2cd54b564044d2229400cf3828f22a2bd483f",
-        "version" : "0.0.3"
-      }
     }
   ],
   "version" : 3
