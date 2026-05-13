@@ -10,7 +10,9 @@ import SwiftUI
 import AngelLiveCore
 import AngelLiveDependencies
 import AppKit
+#if !APPSTORE
 import Sparkle
+#endif
 import Combine
 
 @inline(__always)
@@ -21,6 +23,7 @@ func print(_ items: Any..., separator: String = " ", terminator: String = "\n") 
 #endif
 }
 
+#if !APPSTORE
 // Sparkle 更新控制器
 final class UpdaterViewModel: ObservableObject {
     private let updaterController: SPUStandardUpdaterController
@@ -38,6 +41,7 @@ final class UpdaterViewModel: ObservableObject {
         updaterController.checkForUpdates(nil)
     }
 }
+#endif
 
 // 应用程序代理
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -62,8 +66,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct AngelLiveMacOSApp: App {
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #if !APPSTORE
     // Sparkle 更新管理器
     @StateObject private var updaterViewModel = UpdaterViewModel()
+    #endif
     // 首次启动管理器
     @State private var welcomeManager = WelcomeManager()
     // 全局 ViewModels（用于共享到所有窗口）
@@ -80,17 +86,21 @@ struct AngelLiveMacOSApp: App {
                 .environment(historyViewModel)
                 .environment(toastManager)
                 .environment(fullscreenPlayerManager)
+                #if !APPSTORE
                 .environmentObject(updaterViewModel)
-                .frame(minWidth: 800, maxWidth: .infinity, minHeight: 500, maxHeight: .infinity)
+                #endif
+                .frame(minWidth: 800, maxWidth: .infinity, minHeight: 450, maxHeight: .infinity)
         }
         .commands {
             CommandGroup(after: .appInfo) {
+                #if !APPSTORE
                 Button("检查更新...") {
                     updaterViewModel.checkForUpdates()
                 }
                 .disabled(!updaterViewModel.canCheckForUpdates)
 
                 Divider()
+                #endif
 
                 Button("刷新") {
                     NotificationCenter.default.post(name: NSNotification.Name("RefreshContent"), object: nil)

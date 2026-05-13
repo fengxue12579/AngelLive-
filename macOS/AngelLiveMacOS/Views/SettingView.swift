@@ -10,7 +10,9 @@ import SwiftUI
 import AngelLiveCore
 
 struct SettingView: View {
+    #if !APPSTORE
     @EnvironmentObject private var updaterViewModel: UpdaterViewModel
+    #endif
     @Environment(PluginAvailabilityService.self) private var pluginAvailability
 
     @State private var showOpenSourceList = false
@@ -49,7 +51,9 @@ struct SettingView: View {
             }
 
             Section("关于与支持") {
+                #if !APPSTORE
                 checkUpdateRow
+                #endif
                 openSourceRow
                 githubRow
             }
@@ -196,6 +200,7 @@ struct SettingView: View {
         .buttonStyle(.plain)
     }
 
+    #if !APPSTORE
     private var checkUpdateRow: some View {
         Button {
             updaterViewModel.checkForUpdates()
@@ -216,6 +221,7 @@ struct SettingView: View {
         .buttonStyle(.plain)
         .disabled(!updaterViewModel.canCheckForUpdates)
     }
+    #endif
 
     private var openSourceRow: some View {
         Button {
@@ -377,6 +383,10 @@ private struct MacDanmuSettingView: View {
 }
 
 #Preview {
+    #if !APPSTORE
     SettingView()
         .environmentObject(UpdaterViewModel())
+    #else
+    SettingView()
+    #endif
 }
