@@ -44,9 +44,8 @@ public struct KSCorePlayerView: View {
             .onBufferChanged { bufferedCount, consumeTime in
                 KSLog("bufferedCount:\(bufferedCount),consumeTime:\(consumeTime)")
             }
-        #if (os(iOS) || os(macOS)) && !targetEnvironment(macCatalyst)
-            .translationView()
-        #endif
+        // KSPlayer 3.1.0 起 translationView() 不再 public,字幕翻译已下沉到 KSPlayer 内部 KSCorePlayerView,
+        // 外部不需要再显式叠这层,删掉避免 'inaccessible due to internal protection level' 编译报错。
         #if os(iOS) || os(visionOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif

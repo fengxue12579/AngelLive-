@@ -34,7 +34,6 @@ struct ContentView: View {
     var body: some View {
 
         @Bindable var contentVM = appViewModel
-        @Bindable var consent = appViewModel.consentService
 
         NavigationView {
             TabView(selection:$contentVM.selection) {
@@ -134,13 +133,10 @@ struct ContentView: View {
         }
         .alert("检测到云端插件", isPresented: $showPluginSyncPrompt) {
             Button("一键安装") {
-                Task {
-                    await appViewModel.pluginSourceSyncService.performOneClickInstall(
-                        pluginSourceManager: appViewModel.pluginSourceManager,
-                        pluginAvailability: appViewModel.pluginAvailability,
-                        consentRequester: appViewModel.consentService
-                    )
-                }
+                // 先打开 cover,等 TVPluginManagementView mount 后由它的 .task 自动跑 performOneClickInstall。
+                // 不在这里直接调,是为了让 consent alert 走 cover 内的绑定,避免双 alert 冲突。
+                appViewModel.pendingPluginManagementAction = .oneClickInstall
+                appViewModel.showPluginManagement = true
             }
             Button("取消", role: .cancel) {
                 appViewModel.pluginSourceSyncService.dismissPrompt()
@@ -148,11 +144,20 @@ struct ContentView: View {
         } message: {
             Text("检测到您已在其他设备安装过插件，是否一键安装？")
         }
-        .alert(consent.alertTitle, isPresented: $consent.isPresenting) {
-            Button(consent.continueButtonTitle) { consent.resolve(true) }
-            Button("取消", role: .cancel) { consent.resolve(false) }
-        } message: {
-            Text(consent.alertMessage)
+        // consent alert 不在这里挂 —— 改由 TVPluginManagementView 内部统一处理,
+        // 所有触发 consent 的路径都通过 showPluginManagement 先把 cover 打开。
+        .fullScreenCover(isPresented: $contentVM.showPluginManagement) {
+            TVPluginManagementView(
+                pluginSourceManager: appViewModel.pluginSourceManager,
+                pluginAvailability: appViewModel.pluginAvailability
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.ultraThinMaterial)
+            .environment(appViewModel)
+            .environment(appViewModel.consentService)
+            .onExitCommand {
+                contentVM.showPluginManagement = false
+            }
         }
         .overlay {
             if appViewModel.pluginSourceSyncService.isInstalling {

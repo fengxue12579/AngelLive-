@@ -11,6 +11,7 @@ import Observation
 import AngelLiveCore
 import AngelLiveDependencies
 import AppKit
+import Kingfisher
 
 struct RoomPlayerView: View {
     let room: LiveModel
@@ -22,6 +23,14 @@ struct RoomPlayerView: View {
     @State private var volume: Float = 1.0
     @State private var isMuted = false
     @State private var didCleanup = false
+    /// 首帧渲染粘性标志:state 第一次进入 .buffering / .bufferFinished 后置 true,
+    /// 直播流 state 可能长期停留在 .buffering(KSPlayer 视为 isPlaying),
+    /// 之后不能再把 .buffering 当作"加载中"以免 overlay 常驻。
+    @State private var hasKSStartedPlayback = false
+    /// 首次起播 watchdog:URL 已设但 8s 内未起播自动 refreshPlayback,每条 URL 最多重试 1 次,
+    /// 兜底 KSPlayer prepareToPlay 卡住(createPlayerItem hang / HLS 握手阻塞 等)。
+    @State private var watchdogLastURL: URL?
+    @State private var watchdogRetried = false
 
     init(room: LiveModel) {
         self.room = room
@@ -109,6 +118,18 @@ struct RoomPlayerView: View {
         .onChange(of: coordinator.state) { _, _ in
             disableWindowBackgroundDrag()
         }
+        // 关键背景:RoomInfoViewModel.setPlayerDelegate 把 playerLayer.delegate 抢成 self,
+        // 因此 KSVideoPlayer.Coordinator.state 永远停在 .initialized,不能用它做起播判定。
+        // RoomInfoViewModel.player(layer:state:) 已经把 layer.player.isPlaying 写到 viewModel.isPlaying,
+        // 直接订阅它作为 sticky 起播信号。one-way sticky:置 true 后不再因暂停翻回。
+        .onChange(of: viewModel.isPlaying) { _, isPlaying in
+            if isPlaying {
+                hasKSStartedPlayback = true
+            }
+        }
+        .task(id: viewModel.currentPlayURL) {
+            await runStartupWatchdog()
+        }
     }
 
     private func preventSleep() {
@@ -132,6 +153,37 @@ struct RoomPlayerView: View {
         coordinator.resetPlayer()
         viewModel.disconnectSocket()
         allowSleep()
+    }
+
+    /// 起播超时兜底:8s 内 viewModel.isPlaying 没翻 true 就自动 refreshPlayback 一次。
+    /// .task(id:) 在 currentPlayURL 变化时会自动 cancel 旧 task 重起,所以不用手动管理生命周期。
+    @MainActor
+    private func runStartupWatchdog() async {
+        guard let url = viewModel.currentPlayURL else { return }
+
+        // 新 URL 进来时重置重试计数;refresh 同 URL 时保持原计数,避免无限重试。
+        if watchdogLastURL != url {
+            watchdogLastURL = url
+            watchdogRetried = false
+        }
+
+        guard !watchdogRetried else { return }
+        // 已经在播,不用看了
+        if viewModel.isPlaying { return }
+
+        do {
+            try await Task.sleep(nanoseconds: 8_000_000_000)
+        } catch {
+            return
+        }
+
+        guard !Task.isCancelled,
+              viewModel.currentPlayURL == url,
+              !viewModel.isPlaying else { return }
+
+        watchdogRetried = true
+        print("[PlayerFlow] watchdog: macOS 起播 8s 超时,自动 refreshPlayback (url=\(url.absoluteString))")
+        viewModel.refreshPlayback()
     }
 
     private func disableWindowBackgroundDrag() {
@@ -212,34 +264,33 @@ private extension RoomPlayerView {
 
                 if shouldShowStreamLoading(viewModel: viewModel) {
                     MacStreamLoadingOverlay(
-                        title: isInitialStreamLoading(viewModel: viewModel) ? "正在加载直播流…" : "缓冲中…",
-                        speedProvider: { [coordinator] in
-                            guard let speed = coordinator.playerLayer?.player.dynamicInfo.networkSpeed else {
-                                return nil
-                            }
-                            return Int64(speed)
-                        }
+                        dynamicInfo: coordinator.playerLayer?.player.dynamicInfo
                     )
                 }
             }
         } else {
-            VStack(spacing: 16) {
-                ProgressView()
-                    .scaleEffect(1.5)
-                Text("正在解析直播地址…")
-                    .font(.title3)
-                    .foregroundColor(.secondary)
+            ZStack {
+                Color.black
+                KFImage(URL(string: viewModel.currentRoom.roomCover))
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 24)
+                    .overlay(Color.black.opacity(0.5))
+                    .clipped()
+
+                MacStreamLoadingOverlay(dynamicInfo: nil)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.black)
         }
     }
 
     /// 是否应展示加载层（缓冲或初次加载）。
     func shouldShowStreamLoading(viewModel: RoomInfoViewModel) -> Bool {
-        let state = coordinator.state
-        if state == .buffering { return true }
-        if coordinator.playerLayer?.player.playbackState == .seeking { return true }
+        // 已进入实际渲染态后,只在用户主动 seek 时再现 —— 直播流 KSPlayer.state 长期停留
+        // 在 .buffering 是常态,不能以此判定"加载中",否则 overlay 永不消失。
+        if hasKSStartedPlayback {
+            return coordinator.playerLayer?.player.playbackState == .seeking
+        }
         return isInitialStreamLoading(viewModel: viewModel)
     }
 
@@ -247,6 +298,7 @@ private extension RoomPlayerView {
     /// 注意：.readyToPlay 是「准备好可以播」而非「已在播」，KSPlayer 此时尚未渲染帧。
     /// 不能用 viewModel.isPlaying 二次过滤，否则 .readyToPlay 与 .buffering 之间会闪一帧黑。
     func isInitialStreamLoading(viewModel: RoomInfoViewModel) -> Bool {
+        if hasKSStartedPlayback { return false }
         switch coordinator.state {
         case .initialized, .preparing, .readyToPlay:
             return true
@@ -314,50 +366,55 @@ private extension RoomPlayerView {
 
 // MARK: - 直播加载指示
 
-/// macOS 直播流加载层：菊花 + 标题 + 实时网速。
+/// macOS 直播流加载层:细圆弧 + 数字/单位分体网速,无背景片,贴在视频画面上。
+/// 网速订阅 KSPlayer 自带的 `DynamicInfo.networkSpeed`(@Published)。
 struct MacStreamLoadingOverlay: View {
-    let title: String
-    let speedProvider: () -> Int64?
-
-    @State private var bytesPerSecond: Int64 = 0
-    @State private var hasSpeed: Bool = false
+    let dynamicInfo: DynamicInfo?
 
     var body: some View {
-        VStack(spacing: 10) {
-            ProgressView()
-                .scaleEffect(1.4)
-                .tint(.white)
-            Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.white)
-            Text(hasSpeed ? Self.formatSpeed(bytesPerSecond) : "正在测速…")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.75))
-                .monospacedDigit()
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .task {
-            // KSPlayer 的 dynamicInfo.networkSpeed 仅在播放推进时（~1.5s 一次）更新，
-            // 初次加载阶段会一直停留在 0 → 只在拿到正数后再点亮，避免恒显 0 KB/s 的误导。
-            while !Task.isCancelled {
-                if let speed = speedProvider(), speed > 0 {
-                    bytesPerSecond = speed
-                    hasSpeed = true
-                }
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
+        VStack(spacing: 18) {
+            ArcSpinner(size: 34, lineWidth: 1.5)
+            if let info = dynamicInfo {
+                MacStreamSpeedText(info: info)
+            } else {
+                MacStreamPlaceholder()
             }
         }
+        .shadow(color: .black.opacity(0.45), radius: 8, x: 0, y: 2)
     }
+}
 
-    private static func formatSpeed(_ bytesPerSecond: Int64) -> String {
-        let bps = max(bytesPerSecond, 0)
-        let kb = Double(bps) / 1024.0
-        if kb < 1024 {
-            return String(format: "%.0f KB/s", kb)
+private struct MacStreamSpeedText: View {
+    @ObservedObject var info: DynamicInfo
+
+    var body: some View {
+        if info.networkSpeed > 0 {
+            let (value, unit) = SpeedFormatter.split(bytesPerSecond: Int64(info.networkSpeed))
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(.system(size: 22, weight: .light, design: .rounded))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .animation(.easeOut(duration: 0.25), value: value)
+                Text(unit)
+                    .font(.system(size: 11, weight: .medium))
+                    .tracking(0.5)
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+        } else {
+            MacStreamPlaceholder()
         }
-        return String(format: "%.1f MB/s", kb / 1024.0)
+    }
+}
+
+private struct MacStreamPlaceholder: View {
+    var body: some View {
+        Text("connecting")
+            .font(.system(size: 11, weight: .medium))
+            .tracking(2)
+            .foregroundStyle(.white.opacity(0.45))
+            .textCase(.uppercase)
     }
 }
 
@@ -386,6 +443,43 @@ private final class WindowReferenceView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowBinding = self.window
+    }
+}
+
+// MARK: - 共享组件
+
+/// 极简旋转圆弧。线宽 / 直径可配,默认白色 90%。
+private struct ArcSpinner: View {
+    let size: CGFloat
+    let lineWidth: CGFloat
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.22)
+            .stroke(
+                Color.white.opacity(0.9),
+                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+            )
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(rotation))
+            .onAppear {
+                withAnimation(.linear(duration: 0.95).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+            }
+    }
+}
+
+/// 网速格式化:返回 (数字, 单位) 拆分,以便分别排版。
+private enum SpeedFormatter {
+    static func split(bytesPerSecond: Int64) -> (value: String, unit: String) {
+        let bps = max(bytesPerSecond, 0)
+        let kb = Double(bps) / 1024.0
+        if kb < 1024 {
+            return (String(format: "%.0f", kb), "KB/s")
+        }
+        return (String(format: "%.1f", kb / 1024.0), "MB/s")
     }
 }
 

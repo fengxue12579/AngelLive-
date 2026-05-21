@@ -11,13 +11,14 @@ private let useVLC = ProcessInfo.processInfo.environment["USE_VLC"] == "1"
 private func resolveFFmpegKitDependency() -> Package.Dependency? {
     guard !useVLC else { return nil }
     // Force KSPlayer/KSMEPlayer onto the LGPL FFmpegKit line.
-    return .package(url: "https://github.com/TracyPlayer/FFmpegKit", branch: "lgpl")
+    // 8.1.1 标签当前指向 lgpl 分支 HEAD,固定 exact 避免分支漂移。
+    return .package(url: "https://github.com/TracyPlayer/FFmpegKit", exact: "8.1.1")
 }
 
 private func resolveKSPlayerDependency() -> (package: Package.Dependency, target: Target.Dependency)? {
     guard !useVLC else { return nil }
     return (
-        .package(url: "https://github.com/TracyPlayer/KSPlayer", exact: "3.0.0-beta"),
+        .package(url: "https://github.com/TracyPlayer/KSPlayer", exact: "3.1.0"),
         "KSPlayer"
     )
 }

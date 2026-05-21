@@ -77,24 +77,25 @@ struct AccountManagementView: View {
     // MARK: - 主页面
 
     private var accountMainView: some View {
-        VStack(spacing: 15) {
-            Spacer()
-
-            // 同步区域
-            Button {
-                currentPage = .lanSync
-            } label: {
-                HStack(spacing: 15) {
-                    Text("局域网同步")
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Text("推荐")
-                        .font(.system(size: 30))
-                        .foregroundStyle(.green)
-                    Image(systemName: "chevron.right")
-                        .foregroundStyle(.secondary)
+        // 平台列表 + iCloud 同步控件加起来在半屏容器里会溢出,套 ScrollView 让 tvOS 焦点引擎自动滚动。
+        // scrollClipDisabled: tvOS Button 聚焦时会放大,默认 ScrollView 会裁掉左右溢出部分,关掉裁剪让放大动画完整显示。
+        ScrollView {
+            VStack(spacing: 15) {
+                // 同步区域
+                Button {
+                    currentPage = .lanSync
+                } label: {
+                    HStack(spacing: 15) {
+                        Text("局域网同步")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Text("推荐")
+                            .font(.system(size: 30))
+                            .foregroundStyle(.green)
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
                 }
-            }
 
             Toggle(isOn: $syncService.iCloudSyncEnabled) {
                 Text("iCloud 自动同步")
@@ -145,7 +146,7 @@ struct AccountManagementView: View {
                 } label: {
                     HStack(spacing: 15) {
                         Text(isClearingCloudLoginInfo ? "正在清理..." : "清理云端登录信息")
-                            .foregroundColor(.red)
+                            .foregroundColor(.primary)
                         Spacer()
                         if isClearingCloudLoginInfo {
                             ProgressView()
@@ -183,8 +184,10 @@ struct AccountManagementView: View {
                 }
             }
 
-            Spacer(minLength: 200)
+                Spacer(minLength: 200)
+            }
         }
+        .scrollClipDisabled()
         .task {
             platforms = await PlatformLoginRegistry.shared.availablePlatforms()
             await syncService.refreshAllLoginStatus()

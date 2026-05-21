@@ -9,10 +9,10 @@ import AngelLiveCore
 struct TVShellConfigView: View {
     @Environment(AppState.self) private var appViewModel
 
+    // cover 由 ContentView 根部持有,本视图通过 appViewModel.showPluginManagement 触发它。
     @State private var inputURL = ""
     @State private var inputTitle = ""
     @State private var isProcessing = false
-    @State private var showPluginManagement = false
     @FocusState private var focusedField: Field?
 
     enum Field { case title, url, add }
@@ -91,17 +91,6 @@ struct TVShellConfigView: View {
             case .cookie: break
             }
         }
-        .fullScreenCover(isPresented: $showPluginManagement) {
-            TVPluginManagementView(
-                pluginSourceManager: appViewModel.pluginSourceManager,
-                pluginAvailability: appViewModel.pluginAvailability
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.ultraThinMaterial)
-            .onExitCommand {
-                showPluginManagement = false
-            }
-        }
     }
 
     // MARK: - 远程输入二维码面板
@@ -160,14 +149,14 @@ struct TVShellConfigView: View {
                 if !addedURLs.isEmpty {
                     inputURL = ""
                     inputTitle = ""
-                    showPluginManagement = true
+                    appViewModel.showPluginManagement = true
                 }
             } else {
                 let addedURLs = await appViewModel.pluginSourceManager.addSourceWithKeyResolution(url)
                 if !addedURLs.isEmpty {
                     inputURL = ""
                     inputTitle = ""
-                    showPluginManagement = true
+                    appViewModel.showPluginManagement = true
                 } else if appViewModel.pluginSourceManager.errorMessage == nil {
                     // 非 key，作为视频书签添加
                     await appViewModel.bookmarkService.add(
@@ -188,7 +177,10 @@ struct TVShellConfigView: View {
 struct TVPluginManagementView: View {
     let pluginSourceManager: PluginSourceManager
     let pluginAvailability: PluginAvailabilityService
+    // 本视图作为 fullScreenCover 的内容呈现,consent alert 必须挂在 cover 内部
+    // 才能可靠覆盖在 cover 之上(SwiftUI 在 tvOS 上对 modal 之上叠 alert 的支持有缺陷)。
     @Environment(PluginInstallConsentService.self) private var consentService
+    @Environment(AppState.self) private var appViewModel
     @State private var pluginIdToUninstall: String?
     @State private var sourceToRemove: String?
 
@@ -225,6 +217,12 @@ struct TVPluginManagementView: View {
         }
         .task {
             await reloadPluginCatalog()
+            // cover 由调用方设置 pendingPluginManagementAction 后再打开,这里 mount 完成后兜底执行。
+            // 走 cover 内的 alert 绑定,避免 ContentView 顶层 alert 与 cover 撞 modal stack。
+            if let action = appViewModel.pendingPluginManagementAction {
+                appViewModel.pendingPluginManagementAction = nil
+                await runAutoAction(action)
+            }
         }
         .confirmationDialog("卸载插件", isPresented: Binding(
             get: { pluginIdToUninstall != nil },
@@ -648,5 +646,27 @@ struct TVPluginManagementView: View {
     private func reloadPluginCatalog() async {
         await pluginSourceManager.fetchAllSourceIndexes()
         await pluginSourceManager.refreshAvailableUpdates()
+    }
+
+    /// cover mount 后由 .task 调用,处理外部触发的自动安装动作(一键安装 / deep link 等)。
+    private func runAutoAction(_ action: PluginManagementAutoAction) async {
+        switch action {
+        case .oneClickInstall:
+            await appViewModel.pluginSourceSyncService.performOneClickInstall(
+                pluginSourceManager: pluginSourceManager,
+                pluginAvailability: pluginAvailability,
+                consentRequester: consentService
+            )
+        case .deepLinkInstall(let input):
+            let added = await pluginSourceManager.addSourceFromInput(input)
+            guard !added.isEmpty else { return }
+            await pluginSourceManager.fetchAllSourceIndexes()
+            let count = await pluginSourceManager.installAll()
+            if count > 0 {
+                PluginAppGroupSync.syncToAppGroup()
+                await pluginAvailability.refresh()
+            }
+            await pluginSourceManager.refreshAvailableUpdates()
+        }
     }
 }

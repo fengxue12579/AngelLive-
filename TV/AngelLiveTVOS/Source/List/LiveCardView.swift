@@ -358,19 +358,48 @@ struct LiveCardView: View {
         let isPlayableRoom = liveViewModel.currentRoom.map(PlatformHostBehavior.isPlayableRoom) ?? false
 
         if isPlayableRoom || liveViewModel.roomListType == .live {
-            if !appViewModel.historyViewModel.watchList.contains(where: { liveViewModel.currentRoom!.roomId == $0.roomId }) {
-                appViewModel.historyViewModel.watchList.insert(liveViewModel.currentRoom!, at: 0)
+            proceedToPlayer()
+            return
+        }
+
+        // 搜索/收藏/历史等列表的 liveState 可能为空或过期,先拉一次实时状态再判定
+        guard let room = liveViewModel.currentRoom else { return }
+        Task {
+            do {
+                let state = try await ApiManager.getCurrentRoomLiveState(
+                    roomId: room.roomId,
+                    userId: room.userId,
+                    liveType: room.liveType
+                )
+                await MainActor.run {
+                    liveViewModel.currentRoom?.liveState = state.rawValue
+                    if index < liveViewModel.roomList.count {
+                        liveViewModel.roomList[index].liveState = state.rawValue
+                    }
+                    if let updated = liveViewModel.currentRoom,
+                       PlatformHostBehavior.isPlayableRoom(updated) {
+                        proceedToPlayer()
+                    } else {
+                        liveViewModel.showToast(false, title: "主播已经下播")
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    liveViewModel.showToast(false, title: "状态获取失败,请稍后再试")
+                }
             }
-            let enterFromLive = liveViewModel.roomListType == .live
-            liveViewModel.createCurrentRoomViewModel(enterFromLive: enterFromLive)
-            DispatchQueue.main.async {
-                isLive = true
-            }
-        } else {
-            DispatchQueue.main.async {
-                isLive = false
-                liveViewModel.showToast(false, title: "主播已经下播")
-            }
+        }
+    }
+
+    private func proceedToPlayer() {
+        guard let currentRoom = liveViewModel.currentRoom else { return }
+        if !appViewModel.historyViewModel.watchList.contains(where: { currentRoom.roomId == $0.roomId }) {
+            appViewModel.historyViewModel.watchList.insert(currentRoom, at: 0)
+        }
+        let enterFromLive = liveViewModel.roomListType == .live
+        liveViewModel.createCurrentRoomViewModel(enterFromLive: enterFromLive)
+        DispatchQueue.main.async {
+            isLive = true
         }
     }
 

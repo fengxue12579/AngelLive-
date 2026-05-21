@@ -119,24 +119,16 @@ public final class PluginSourceSyncService {
     // MARK: - 一键安装
 
     /// 一键安装：添加源 → 拉取索引 → 安装全部插件
-    /// - Parameter consentRequester: 启动前的批量确认请求器,nil 时跳过该警告(默认通过)。
+    /// - Parameter consentRequester: 仅 `pluginSourceManager` / `installAll` 内部 consent 使用,
+    ///   外层"检测到云端插件 - 一键安装"alert 已是用户主动触发,这里不再叠加额外 consent;
+    ///   登录类插件的凭证泄露风险由 installAll Phase 1 的批量 alert 列具体平台后一次性确认。
     @MainActor
     public func performOneClickInstall(
         pluginSourceManager: PluginSourceManager,
         pluginAvailability: PluginAvailabilityService,
         consentRequester: (any PluginInstallConsentRequesting)? = nil
     ) async {
-        // CloudKit 自动安装前先做一次批量确认(凭证泄露风险)
-        if let consentRequester {
-            let approved = await consentRequester.requestConsent(
-                reason: .cloudKitAutoInstall(sourceURLs: syncedSourceURLs)
-            )
-            if !approved {
-                Logger.info("User declined CloudKit auto-install of \(syncedSourceURLs.count) sources", category: .plugin)
-                dismissPrompt()
-                return
-            }
-        }
+        _ = consentRequester  // 保留参数签名以兼容调用方,实际由 PluginSourceManager 自身注入的 requester 处理
 
         isInstalling = true
         installStatusMessage = "正在获取插件列表..."

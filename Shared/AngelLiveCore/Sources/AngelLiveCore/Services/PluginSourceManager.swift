@@ -164,19 +164,8 @@ public final class PluginSourceManager: @unchecked Sendable {
             do {
                 let index = try await fetchIndexWithTimeout(url: url)
 
-                // 索引里至少有一个 auth.required == true 的插件,才弹凭证泄露风险确认。
-                // 发布器约定:只要 manifest 含 loginFlow,索引会把 auth.required 标为 true。
-                let containsLoginPlugin = index.plugins.contains { $0.auth?.required == true }
-                if containsLoginPlugin, let requester = consentRequester {
-                    let approved = await requester.requestConsent(
-                        reason: .addingSubscriptionSource(url: candidate)
-                    )
-                    if !approved {
-                        Logger.info("User declined subscription source: \(candidate)", category: .plugin)
-                        return []
-                    }
-                }
-
+                // 添加订阅源本身不下载 JS、不触发安装,无需 consent;
+                // 凭证泄露风险的批量确认下沉到 installAll Phase 1,届时列出具体登录平台一次性拍板。
                 persistSourceIfNeeded(candidate)
                 applyFetchedIndex(index, sourceURL: candidate)
                 return [candidate]

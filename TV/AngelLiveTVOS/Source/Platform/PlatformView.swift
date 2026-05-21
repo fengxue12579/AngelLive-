@@ -22,6 +22,7 @@ struct PlatformView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        // cover 由 ContentView 根部统一持有,所有 tab 共享 — 这里不再本地持有。
         Group {
             if appViewModel.pluginAvailability.hasAvailablePlugins {
                 platformGridView
