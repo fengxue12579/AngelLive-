@@ -610,13 +610,33 @@ struct PlayerContentView: View {
 
     @MainActor
     private func applyVideoFillMode(isVerticalLive: Bool) {
-        playerCoordinator.isScaleAspectFill = isVerticalLive
+        // 竖屏直播始终 fill（产品规则，无视用户设置）；
+        // 横屏：用户设置过 → 用 PlayerSettingModel.videoScaleMode，否则沿用 fit 默认。
+        let targetContentMode: UIView.ContentMode
+        if isVerticalLive {
+            targetContentMode = .scaleAspectFill
+        } else {
+            let setting = PlayerSettingModel()
+            if setting.hasUserSetVideoScaleMode {
+                switch setting.videoScaleMode {
+                case .fit:
+                    targetContentMode = .scaleAspectFit
+                case .stretch:
+                    targetContentMode = .scaleToFill
+                case .fill:
+                    targetContentMode = .scaleAspectFill
+                }
+            } else {
+                targetContentMode = .scaleAspectFit
+            }
+        }
+
+        // 同步 KSPlayer Coordinator 自带的 fill 标志，避免内部状态和实际 contentMode 不一致。
+        playerCoordinator.isScaleAspectFill = (targetContentMode == .scaleAspectFill)
 
         guard let playerLayer = playerCoordinator.playerLayer else {
             return
         }
-
-        let targetContentMode: UIView.ContentMode = isVerticalLive ? .scaleAspectFill : .scaleAspectFit
 
         if playerLayer.player.contentMode != targetContentMode {
             playerLayer.player.contentMode = targetContentMode

@@ -77,6 +77,12 @@ public final class PlayerSettingModel {
         }
     }
 
+    /// 用户是否主动设置过视频缩放模式。
+    /// 未设置时调用方应回退到平台默认（竖屏 fill / 横屏 fit）；设置过后再读取 `videoScaleMode`。
+    public var hasUserSetVideoScaleMode: Bool {
+        UserDefaults.shared.object(forKey: PlayerSettingModel.globalVideoScaleMode) != nil
+    }
+
     @ObservationIgnored
     public var openExitPlayerViewWhenLiveEnd: Bool {
         get {
