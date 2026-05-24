@@ -98,6 +98,31 @@ public enum LiveParseJSPlatformManager {
         // no-op
     }
 
+    /// 把外部传入的 siteId 解析成 LiveType：
+    /// 1) pluginId 精确匹配;
+    /// 2) LiveType.rawValue 精确匹配且仍有平台支持;
+    /// 3) 旧 pluginId(manifest sessionMigration.legacyPluginIds)兜底,
+    ///    用于兼容 SimpleLive 早期备份和 tvOS Bonjour /sync/follow payload。
+    ///
+    /// 解析失败返回 nil(平台未安装/被禁用/格式不对)。
+    public static func liveType(forSiteId siteId: String?) -> LiveType? {
+        let normalized = siteId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !normalized.isEmpty else { return nil }
+
+        if let platform = platform(forPluginId: normalized) {
+            return platform.liveType
+        }
+
+        if let liveType = LiveType(rawValue: normalized),
+           platform(for: liveType) != nil {
+            return liveType
+        }
+
+        return availablePlatforms.first { platform in
+            platform.sessionMigration?.legacyPluginIds?.contains(normalized) == true
+        }?.liveType
+    }
+
     // MARK: - Plugin API (v2 method names, with v1 fallback)
 
     public static func getCategoryList(

@@ -249,7 +249,7 @@ public final class AppFavoriteModel {
     }
 }
 
-private extension AppFavoriteModel {
+extension AppFavoriteModel {
     static func favoriteUniqueKey(for room: LiveModel) -> String {
         let liveType = room.liveType.rawValue
         let userId = room.userId.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AngelLiveCore
+import UniformTypeIdentifiers
 
 struct SyncView: View {
     @Environment(AppFavoriteModel.self) var favoriteModel
@@ -27,6 +28,17 @@ struct SyncView: View {
     @State private var isFetchingPreview = false
     @State private var isClearingCloudLoginInfo = false
 
+    // 收藏备份导入导出
+    @State private var showExportFormatDialog = false
+    @State private var showExporter = false
+    @State private var pendingExportDocument: FavoriteBackupDocument?
+    @State private var pendingExportFilename: String = ""
+    @State private var showImporter = false
+    @State private var importReport: FavoriteImportReport?
+    @State private var showImportResult = false
+    @State private var isImporting = false
+    @State private var importErrorMessage: String?
+
     var body: some View {
         ScrollView {
             VStack(spacing: AppConstants.Spacing.lg) {
@@ -36,6 +48,7 @@ struct SyncView: View {
                 loginInfoSyncCard
                 lanSyncCard
                 accountICloudSyncCard
+                favoriteBackupCard
                 sendResultCard
                 usageGuideCard
                 clearCloudLoginInfoButton
@@ -92,6 +105,59 @@ struct SyncView: View {
             }
         } message: {
             Text("确定要清理 iCloud 中保存的所有平台登录信息吗？此操作不会退出本机账号，但其他设备将无法再从 iCloud 下载这些登录信息。")
+        }
+        .confirmationDialog("选择导出格式", isPresented: $showExportFormatDialog, titleVisibility: .visible) {
+            Button("Angel Live 完整格式（推荐）") {
+                prepareExport(format: .angelLive)
+            }
+            Button("兼容 Simple Live 精简格式") {
+                prepareExport(format: .simpleLive)
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("完整格式保留全部信息；Simple Live 精简格式仅含 4 个核心字段，便于跨工具使用。")
+        }
+        .fileExporter(
+            isPresented: $showExporter,
+            document: pendingExportDocument,
+            contentType: .json,
+            defaultFilename: pendingExportFilename
+        ) { result in
+            switch result {
+            case .success:
+                sendResult = "已导出收藏文件"
+                sendSuccess = true
+            case .failure(let error):
+                sendResult = "导出失败：\(error.localizedDescription)"
+                sendSuccess = false
+            }
+            pendingExportDocument = nil
+        }
+        .fileImporter(
+            isPresented: $showImporter,
+            allowedContentTypes: [.json]
+        ) { result in
+            switch result {
+            case .success(let url):
+                Task { await handleImportPickedFile(url) }
+            case .failure(let error):
+                importErrorMessage = "无法打开文件：\(error.localizedDescription)"
+            }
+        }
+        .sheet(isPresented: $showImportResult) {
+            if let report = importReport {
+                FavoriteImportResultView(report: report) {
+                    showImportResult = false
+                }
+            }
+        }
+        .alert("导入失败", isPresented: Binding(
+            get: { importErrorMessage != nil },
+            set: { if !$0 { importErrorMessage = nil } }
+        )) {
+            Button("好") { importErrorMessage = nil }
+        } message: {
+            Text(importErrorMessage ?? "")
         }
     }
 
@@ -298,6 +364,66 @@ struct SyncView: View {
             }
             .buttonStyle(.plain)
             .disabled(isFetchingPreview)
+        }
+        .padding()
+        .background(AppConstants.Colors.materialBackground)
+        .cornerRadius(AppConstants.CornerRadius.lg)
+    }
+
+    private var favoriteBackupCard: some View {
+        VStack(spacing: AppConstants.Spacing.md) {
+            HStack {
+                Image(systemName: "tray.and.arrow.up.fill")
+                    .font(.title2)
+                    .foregroundStyle(Color.indigo.gradient)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("备份与迁移")
+                        .font(.headline)
+                        .foregroundStyle(AppConstants.Colors.primaryText)
+
+                    Text("将收藏导出为 JSON 文件，或从文件导入")
+                        .font(.caption)
+                        .foregroundStyle(AppConstants.Colors.secondaryText)
+                }
+
+                Spacer()
+            }
+
+            Divider()
+
+            Button {
+                guard !favoriteModel.roomList.isEmpty else {
+                    sendResult = "当前没有收藏可导出"
+                    sendSuccess = false
+                    return
+                }
+                showExportFormatDialog = true
+            } label: {
+                ICloudSyncActionRow(
+                    title: "导出收藏到文件",
+                    subtitle: "选择 Angel Live 完整或 Simple Live 精简格式",
+                    isLoading: false,
+                    systemImage: "square.and.arrow.up",
+                    tint: Color.indigo
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(favoriteModel.roomList.isEmpty)
+
+            Button {
+                showImporter = true
+            } label: {
+                ICloudSyncActionRow(
+                    title: "从文件导入收藏",
+                    subtitle: "支持 Angel Live / Simple Live 两种格式",
+                    isLoading: isImporting,
+                    systemImage: "square.and.arrow.down",
+                    tint: Color.indigo
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isImporting)
         }
         .padding()
         .background(AppConstants.Colors.materialBackground)
@@ -671,7 +797,65 @@ struct SyncView: View {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter.string(from: date)
     }
+
+    // MARK: - 收藏备份
+
+    private func prepareExport(format: FavoriteBackupFormat) {
+        do {
+            let data = try FavoriteBackupService.export(
+                rooms: favoriteModel.roomList,
+                format: format,
+                deviceName: currentDeviceName()
+            )
+            pendingExportDocument = FavoriteBackupDocument(data: data)
+            pendingExportFilename = makeBackupFilename(format: format)
+            showExporter = true
+        } catch {
+            sendResult = "导出失败：\(error.localizedDescription)"
+            sendSuccess = false
+        }
+    }
+
+    private func makeBackupFilename(format: FavoriteBackupFormat) -> String {
+        let timestampFormatter = DateFormatter()
+        timestampFormatter.dateFormat = "yyyyMMdd-HHmmss"
+        let stamp = timestampFormatter.string(from: Date())
+        let device = currentDeviceName().replacingOccurrences(of: "/", with: "-")
+        switch format {
+        case .angelLive:
+            return "\(format.fileNamePrefix)-\(device)-\(stamp)"
+        case .simpleLive:
+            return "\(format.fileNamePrefix)-\(stamp)"
+        }
+    }
+
+    private func handleImportPickedFile(_ url: URL) async {
+        isImporting = true
+        defer { isImporting = false }
+
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+        }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            importErrorMessage = "读取文件失败：\(error.localizedDescription)"
+            return
+        }
+
+        do {
+            let report = try await favoriteModel.importBackup(data)
+            importReport = report
+            showImportResult = true
+        } catch {
+            importErrorMessage = error.localizedDescription
+        }
+    }
 }
+
 
 private struct SyncStatTile: View {
     let value: String
