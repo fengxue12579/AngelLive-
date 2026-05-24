@@ -224,12 +224,17 @@ public final class PluginSourceManager: @unchecked Sendable {
         guard !trimmed.isEmpty else { return }
 
         var pluginIds = sourcePluginIds[trimmed] ?? Set<String>()
+        var resolvedFromCacheOrRemote = !pluginIds.isEmpty
+
         if pluginIds.isEmpty, let url = URL(string: trimmed) {
             do {
                 let index = try await fetchIndexWithTimeout(url: url)
                 pluginIds = Set(index.plugins.map(\.pluginId))
+                resolvedFromCacheOrRemote = true
             } catch {
-                // 源不可达时仍然继续,后续会用其它源覆盖关系兜底
+                // 源不可达且缓存为空(常见于:CloudKit 同步后只占位未拉过索引、
+                // 老版本升级上来没写过 sourcePluginIds、首次 fetch 即失败而 URL 已过期),
+                // 走下面的孤儿兜底:沙盒里实际安装、且没有其它源声明的插件视为该源的孤儿。
                 Logger.warning(
                     "Source unreachable while removing, fallback to cached mapping: \(trimmed)",
                     category: .plugin
@@ -237,11 +242,26 @@ public final class PluginSourceManager: @unchecked Sendable {
             }
         }
 
-        // 兜底:其它源也声明过同一个 pluginId 时,这些插件不应被卸载。
+        // 其它源也声明过同一个 pluginId 时,这些插件不应被卸载。
         let coveredByOtherSources = sourcePluginIds
             .filter { $0.key != trimmed }
             .values
             .reduce(into: Set<String>()) { $0.formUnion($1) }
+
+        // 第三级兜底:缓存空 + 远程拉取失败时,认为"沙盒里实际安装、又没有任何其它源
+        // 声明"的插件来源就是这个被删的源,一并卸载。builtIn 插件不落地到 pluginsRootDirectory,
+        // 不会被这个集合包含,所以不会被误删。
+        if !resolvedFromCacheOrRemote {
+            let orphans = installedSandboxPluginIds().subtracting(coveredByOtherSources)
+            if !orphans.isEmpty {
+                Logger.info(
+                    "Removing orphan plugins for unreachable source \(trimmed): \(orphans.sorted())",
+                    category: .plugin
+                )
+                pluginIds = orphans
+            }
+        }
+
         let pluginsToUninstall = pluginIds.subtracting(coveredByOtherSources)
 
         removeSource(trimmed)
@@ -249,6 +269,25 @@ public final class PluginSourceManager: @unchecked Sendable {
         for pluginId in pluginsToUninstall {
             _ = uninstallPlugin(pluginId: pluginId)
         }
+    }
+
+    /// 列出 Application Support/LiveParse/plugins/ 下的实际安装目录。
+    /// builtIn(随 bundle 分发)不在这里,所以这个集合天然只包含沙盒安装的插件。
+    private func installedSandboxPluginIds() -> Set<String> {
+        let root = LiveParsePlugins.shared.storage.pluginsRootDirectory
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return Set(
+            urls
+                .filter { $0.hasDirectoryPath }
+                .map { $0.lastPathComponent }
+                .filter { !$0.isEmpty }
+        )
     }
 
     // MARK: - 拉取远程索引
