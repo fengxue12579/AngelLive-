@@ -177,7 +177,7 @@ private struct PlayerSettingsSheet: View {
 
                             settingRow {
                                 Toggle("后台播放", isOn: $playerSettingModel.enableBackgroundAudio)
-                                    .tint(.green)
+                                    .tint(AppConstants.Colors.accent)
                                     .onChange(of: playerSettingModel.enableBackgroundAudio) { _, newValue in
                                         KSOptions.canBackgroundPlay = newValue
                                         // 关后台播放时，自动 PiP 必然失效，一起关掉
@@ -194,7 +194,7 @@ private struct PlayerSettingsSheet: View {
                             settingRow {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Toggle("自动画中画", isOn: $playerSettingModel.enableAutoPiPOnBackground)
-                                        .tint(.green)
+                                        .tint(AppConstants.Colors.accent)
                                         .disabled(!pipSupported)
                                         .onChange(of: playerSettingModel.enableAutoPiPOnBackground) { _, newValue in
                                             if newValue && !playerSettingModel.enableBackgroundAudio {
