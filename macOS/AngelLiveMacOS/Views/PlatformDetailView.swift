@@ -240,6 +240,7 @@ struct PlatformDetailView: View {
                 .padding(.vertical, 12)
             }
             .scrollBounceBehavior(.basedOnSize)
+            .enableMacHorizontalWheelScroll()
             .onChange(of: viewModel.selectedMainCategoryIndex) { _, newValue in
                 withAnimation {
                     proxy.scrollTo(newValue, anchor: .center)
@@ -274,6 +275,7 @@ struct PlatformDetailView: View {
                 .padding(.vertical, 8)
             }
             .scrollBounceBehavior(.basedOnSize)
+            .enableMacHorizontalWheelScroll()
             .onChange(of: viewModel.selectedSubCategoryIndex) { _, newValue in
                 withAnimation {
                     proxy.scrollTo(newValue, anchor: .center)

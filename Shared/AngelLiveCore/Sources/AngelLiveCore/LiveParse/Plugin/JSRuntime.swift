@@ -713,9 +713,10 @@ private extension JSRuntime {
         error: String?,
         duration: TimeInterval
     ) {
+        // 跟父调用对齐:无条件记录 HTTP 子请求,挂到当前活跃的 entry 上。
+        // 没有活跃 entry(很罕见,通常意味着插件函数已结束)才跳过。
         let console = PluginConsoleService.shared
-        guard console.isEnabled,
-              let entryId = console.activeEntryId(for: pluginId) else { return }
+        guard let entryId = console.activeEntryId(for: pluginId) else { return }
 
         let bodyStr: String? = envelope.body.flatMap { String(data: $0, encoding: .utf8) }
 

@@ -25,9 +25,20 @@ public actor FavoriteStateModel {
 
     public func syncStreamerLiveStates() async throws -> ([LiveModel], [FavoriteLiveSectionModel]) {
         let overallStart = CFAbsoluteTimeGetCurrent()
+        let consoleEntryId = await MainActor.run {
+            PluginConsoleService.shared.log(tag: "FavoriteSync", method: "syncAll", status: .loading)
+        }
         // 防止并发执行
         guard !isSyncing else {
             print("Actor 正在同步中，拒绝重复调用")
+            await MainActor.run {
+                PluginConsoleService.shared.updateStatus(
+                    id: consoleEntryId,
+                    status: .error,
+                    duration: CFAbsoluteTimeGetCurrent() - overallStart,
+                    errorMessage: "正在同步中,拒绝重复调用"
+                )
+            }
             throw NSError(domain: "FavoriteStateModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "正在同步中"])
         }
 
@@ -41,8 +52,23 @@ public actor FavoriteStateModel {
             roomList = deduplicateFavoriteRooms(roomList)
             let cloudDuration = CFAbsoluteTimeGetCurrent() - cloudStart
             favoriteSyncLog("CloudKit fetched \(roomList.count) favorites in \(formatSeconds(cloudDuration))s")
-        }catch {
+        } catch {
+            await MainActor.run {
+                PluginConsoleService.shared.updateStatus(
+                    id: consoleEntryId,
+                    status: .error,
+                    duration: CFAbsoluteTimeGetCurrent() - overallStart,
+                    errorMessage: "CloudKit 拉取收藏失败: \(error.localizedDescription)"
+                )
+            }
             throw error
+        }
+        let cloudFetchedCount = roomList.count
+        await MainActor.run {
+            PluginConsoleService.shared.updateRequest(
+                id: consoleEntryId,
+                body: "CloudKit fetched: \(cloudFetchedCount) rooms"
+            )
         }
 
         var platformFavoriteCounts: [LiveType: Int] = [:]
@@ -110,15 +136,39 @@ public actor FavoriteStateModel {
         favoriteSyncLog("Live status sync finished \(syncedCount) rooms in \(formatSeconds(statusSyncDuration))s")
 
         let sortedPlatformStats = platformStats.sorted { $0.key.rawValue < $1.key.rawValue }
+        var consoleReportLines: [String] = []
+        var totalSuccess = 0
+        var totalFailure = 0
         for (liveType, stat) in sortedPlatformStats {
             let platformName = LiveParseTools.getLivePlatformName(liveType)
             let totalFavorites = platformFavoriteCounts[liveType] ?? stat.count
             let avg = stat.count > 0 ? stat.totalTime / Double(stat.count) : 0
             favoriteSyncLog("\(platformName): favorites \(totalFavorites), synced \(stat.count), total \(formatSeconds(stat.totalTime))s, avg \(formatSeconds(avg))s, success \(stat.success), fail \(stat.failure)")
+            consoleReportLines.append("\(platformName): \(stat.success)/\(stat.count) 成功, 失败 \(stat.failure), 总耗时 \(formatSeconds(stat.totalTime))s (avg \(formatSeconds(avg))s)")
+            totalSuccess += stat.success
+            totalFailure += stat.failure
         }
 
         let overallDuration = CFAbsoluteTimeGetCurrent() - overallStart
         favoriteSyncLog("Favorite sync tox xtal time \(formatSeconds(overallDuration))s")
+        let consoleResponseBody = """
+        CloudKit fetched: \(cloudFetchedCount) rooms
+        synced: \(syncedCount), 成功 \(totalSuccess), 失败 \(totalFailure)
+        status sync: \(formatSeconds(statusSyncDuration))s, total: \(formatSeconds(overallDuration))s
+
+        per-platform:
+        \(consoleReportLines.isEmpty ? "(无)" : consoleReportLines.joined(separator: "\n"))
+        """
+        let finalConsoleStatus: PluginConsoleEntryStatus = (totalFailure > 0 ? .success : .success)
+        // 注:即使有平台失败也走 success,失败计数已经体现在响应体里;只有 throw 才算 .error。
+        await MainActor.run {
+            PluginConsoleService.shared.updateStatus(
+                id: consoleEntryId,
+                status: finalConsoleStatus,
+                duration: overallDuration,
+                responseBody: consoleResponseBody
+            )
+        }
         
         // 使用抽取的排序和分组方法，消除重复代码
         let sortedModels = fetchedModels.sortedByLiveState()

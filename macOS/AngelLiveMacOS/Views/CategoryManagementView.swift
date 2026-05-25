@@ -40,6 +40,7 @@ struct CategoryManagementView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
             }
+            .enableMacHorizontalWheelScroll()
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 80, maximum: 120), spacing: 16)], spacing: 16) {
                     ForEach(Array(currentSubCategories.enumerated()), id: \.offset) { index, subCategory in

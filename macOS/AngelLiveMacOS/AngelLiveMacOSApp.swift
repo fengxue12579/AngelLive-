@@ -107,8 +107,16 @@ struct AngelLiveMacOSApp: App {
                 }
                 .keyboardShortcut("r", modifiers: .command)
             }
+            #if DEBUG
+            // Debug 菜单 + ⌘⇧D 召出插件控制台,仅 DEBUG 构建可见。
+            DevConsoleCommands()
+            #endif
         }
         .defaultSize(width: 1024, height: 960)
+
+        #if DEBUG
+        DevConsoleScene()
+        #endif
 
         WindowGroup(for: LiveModel.self) { $room in
             if let room = room {

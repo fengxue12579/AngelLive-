@@ -162,7 +162,21 @@ public final class AppFavoriteModel {
             return
         }
 
-        try await FavoriteService.saveRecord(liveModel: room)
+        let consoleEntryId = PluginConsoleService.shared.log(tag: "Favorite", method: "addFavorite", status: .loading)
+        PluginConsoleService.shared.updateRequest(id: consoleEntryId, body: AppFavoriteModel.consoleRequestBody(for: room))
+        let consoleStart = Date()
+
+        do {
+            try await FavoriteService.saveRecord(liveModel: room)
+        } catch {
+            PluginConsoleService.shared.updateStatus(
+                id: consoleEntryId,
+                status: .error,
+                duration: Date().timeIntervalSince(consoleStart),
+                errorMessage: AppFavoriteModel.consoleErrorMessage(for: error)
+            )
+            throw error
+        }
         // 查找第一个非直播状态的房间位置
         var favIndex = -1
         for (index, favoriteRoom) in roomList.enumerated() {
@@ -219,11 +233,32 @@ public final class AppFavoriteModel {
             }
         }
         listVersion &+= 1
+        PluginConsoleService.shared.updateStatus(
+            id: consoleEntryId,
+            status: .success,
+            duration: Date().timeIntervalSince(consoleStart),
+            responseBody: AppFavoriteModel.consoleSuccessSummary(verb: "已收藏", room: room, totalCount: roomList.count)
+        )
     }
 
     @MainActor
     public func removeFavoriteRoom(room: LiveModel) async throws {
-        try await FavoriteService.deleteRecord(liveModel: room)
+        let consoleEntryId = PluginConsoleService.shared.log(tag: "Favorite", method: "removeFavoriteRoom", status: .loading)
+        PluginConsoleService.shared.updateRequest(id: consoleEntryId, body: AppFavoriteModel.consoleRequestBody(for: room))
+        let consoleStart = Date()
+
+        do {
+            try await FavoriteService.deleteRecord(liveModel: room)
+        } catch {
+            PluginConsoleService.shared.updateStatus(
+                id: consoleEntryId,
+                status: .error,
+                duration: Date().timeIntervalSince(consoleStart),
+                errorMessage: AppFavoriteModel.consoleErrorMessage(for: error)
+            )
+            throw error
+        }
+
         let targetKey = AppFavoriteModel.favoriteUniqueKey(for: room)
         // 从 roomList 中删除
         roomList.removeAll(where: { AppFavoriteModel.favoriteUniqueKey(for: $0) == targetKey })
@@ -234,6 +269,62 @@ public final class AppFavoriteModel {
         }
         groupedRoomList.removeAll(where: { $0.roomList.isEmpty })
         listVersion &+= 1
+        PluginConsoleService.shared.updateStatus(
+            id: consoleEntryId,
+            status: .success,
+            duration: Date().timeIntervalSince(consoleStart),
+            responseBody: AppFavoriteModel.consoleSuccessSummary(verb: "已取消收藏", room: room, totalCount: roomList.count)
+        )
+    }
+
+    /// 构造统一的控制台请求摘要,用于开发者面板查看本次收藏操作针对哪个房间。
+    private static func consoleRequestBody(for room: LiveModel) -> String {
+        let platform = room.liveType.rawValue
+        let userId = room.userId.isEmpty ? "-" : room.userId
+        let roomId = room.roomId.isEmpty ? "-" : room.roomId
+        let userName = room.userName.isEmpty ? "-" : room.userName
+        let roomTitle = room.roomTitle.isEmpty ? "-" : room.roomTitle
+        return """
+        platform: \(platform)
+        userId: \(userId)
+        roomId: \(roomId)
+        userName: \(userName)
+        roomTitle: \(roomTitle)
+        """
+    }
+
+    /// 控制台成功面板:把操作结果(收藏/取消)+ 房间识别信息 + 当前收藏总数都打出来。
+    private static func consoleSuccessSummary(verb: String, room: LiveModel, totalCount: Int) -> String {
+        let platformName = LiveParseTools.getLivePlatformName(room.liveType)
+        let userName = room.userName.isEmpty ? "-" : room.userName
+        let identity: String
+        if !room.userId.isEmpty {
+            identity = "userId=\(room.userId)"
+        } else if !room.roomId.isEmpty {
+            identity = "roomId=\(room.roomId)"
+        } else {
+            identity = "name=\(userName)"
+        }
+        return """
+        result: \(verb)
+        platform: \(platformName)
+        target: \(userName) (\(identity))
+        currentFavoriteCount: \(totalCount)
+        """
+    }
+
+    /// 控制台错误面板:既给出格式化的错误码,也保留原始 error 描述,方便排查。
+    private static func consoleErrorMessage(for error: Error) -> String {
+        let formatted = FavoriteService.formatErrorCode(error: error)
+        let raw = error.localizedDescription
+        if formatted == raw {
+            return formatted
+        }
+        return """
+        \(formatted)
+        ── raw ──
+        \(raw)
+        """
     }
 
     public func refreshView() {

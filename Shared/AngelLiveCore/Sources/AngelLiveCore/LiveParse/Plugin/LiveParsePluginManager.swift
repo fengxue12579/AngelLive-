@@ -122,38 +122,31 @@ public final class LiveParsePluginManager: @unchecked Sendable {
             // 同上，继续 forward。
         }
 
-        // 开发者控制台日志
+        // 开发者控制台日志 —— 跟宿主域(Favorite/Danmaku/Player 等)对齐,无条件写入。
+        // 缓冲区有 500 条上限,代价可忽略;运行时 UI 是否显示由 GeneralSettingModel.developerModeEnabled 控制。
         let console = PluginConsoleService.shared
-        let shouldLog = console.isEnabled
-        var entryId: UUID?
+        let payloadStr = (try? String(data: JSONSerialization.data(withJSONObject: payload), encoding: .utf8)) ?? "{}"
+        let entryId = await console.log(tag: pluginId, method: function)
+        await console.updateRequest(id: entryId, body: payloadStr)
+        // 标记活跃调用，让 Host.http 能关联 HTTP 子请求
+        console.setActiveCall(pluginId: pluginId, entryId: entryId)
         let startTime = CFAbsoluteTimeGetCurrent()
-        if shouldLog {
-            let payloadStr = (try? String(data: JSONSerialization.data(withJSONObject: payload), encoding: .utf8)) ?? "{}"
-            entryId = await console.log(tag: pluginId, method: function)
-            await console.updateRequest(id: entryId!, body: payloadStr)
-            // 标记活跃调用，让 Host.http 能关联 HTTP 子请求
-            console.setActiveCall(pluginId: pluginId, entryId: entryId!)
-        }
 
         do {
             let plugin = try resolve(pluginId: pluginId)
             try await plugin.load()
             let result = try await plugin.runtime.callPluginFunction(name: function, payload: payload)
 
-            if shouldLog, let eid = entryId {
-                console.clearActiveCall(pluginId: pluginId)
-                let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-                let responseStr = (try? String(data: JSONSerialization.data(withJSONObject: result), encoding: .utf8))
-                    .map { String($0.prefix(2000)) }
-                await console.updateStatus(id: eid, status: .success, duration: elapsed, responseBody: responseStr)
-            }
+            console.clearActiveCall(pluginId: pluginId)
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            let responseStr = (try? String(data: JSONSerialization.data(withJSONObject: result), encoding: .utf8))
+                .map { String($0.prefix(2000)) }
+            await console.updateStatus(id: entryId, status: .success, duration: elapsed, responseBody: responseStr)
             return result
         } catch {
-            if shouldLog, let eid = entryId {
-                console.clearActiveCall(pluginId: pluginId)
-                let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-                await console.updateStatus(id: eid, status: .error, duration: elapsed, errorMessage: error.localizedDescription)
-            }
+            console.clearActiveCall(pluginId: pluginId)
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            await console.updateStatus(id: entryId, status: .error, duration: elapsed, errorMessage: error.localizedDescription)
             throw error
         }
     }

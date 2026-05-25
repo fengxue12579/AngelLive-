@@ -142,8 +142,32 @@ public actor PlatformSessionManager {
         source: PlatformSessionSource = .local,
         validateBeforeSave: Bool = true
     ) async -> PlatformSessionValidationResult {
+        let consoleEntryId = await MainActor.run {
+            PluginConsoleService.shared.log(tag: "Credential", method: "login", status: .loading)
+        }
+        let consoleStart = Date()
         let normalizedCookie = cookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cookieLength = normalizedCookie.count
+        await MainActor.run {
+            PluginConsoleService.shared.updateRequest(
+                id: consoleEntryId,
+                body: """
+                pluginId: \(pluginId)
+                uid: \(uid ?? "-")
+                liveType: \(liveType ?? "-")
+                source: \(source)
+                validateBeforeSave: \(validateBeforeSave)
+                cookieLength: \(cookieLength)
+                """
+            )
+        }
         guard !normalizedCookie.isEmpty else {
+            await Self.finishCredentialEntry(
+                id: consoleEntryId,
+                start: consoleStart,
+                status: .error,
+                errorMessage: "Cookie 为空"
+            )
             return .invalid(reason: "Cookie 为空")
         }
 
@@ -177,6 +201,22 @@ public actor PlatformSessionManager {
             break
         }
 
+        let consoleSummary = Self.credentialDescription(for: validationResult)
+        let consoleStatus: PluginConsoleEntryStatus
+        switch validationResult {
+        case .valid, .expired:
+            consoleStatus = .success
+        case .invalid, .networkError:
+            consoleStatus = .error
+        }
+        await Self.finishCredentialEntry(
+            id: consoleEntryId,
+            start: consoleStart,
+            status: consoleStatus,
+            responseBody: consoleStatus == .success ? consoleSummary : nil,
+            errorMessage: consoleStatus == .error ? consoleSummary : nil
+        )
+
         return validationResult
     }
 
@@ -200,16 +240,87 @@ public actor PlatformSessionManager {
     public func clearSession(pluginId: String) {
         store.clearSession(for: pluginId)
         PlatformSessionLiveParseBridge.clearForPlatform(pluginId: pluginId)
+        let snapshot = pluginId
+        Task { @MainActor in
+            let id = PluginConsoleService.shared.log(tag: "Credential", method: "logout", status: .loading)
+            PluginConsoleService.shared.updateRequest(id: id, body: "pluginId: \(snapshot)")
+            PluginConsoleService.shared.updateStatus(
+                id: id,
+                status: .success,
+                responseBody: "已清除本地会话与共享凭证池"
+            )
+        }
     }
 
     public func validateSession(pluginId: String) async -> PlatformSessionValidationResult {
+        let consoleEntryId = await MainActor.run {
+            PluginConsoleService.shared.log(tag: "Credential", method: "validate", status: .loading)
+        }
+        let consoleStart = Date()
+        await MainActor.run {
+            PluginConsoleService.shared.updateRequest(id: consoleEntryId, body: "pluginId: \(pluginId)")
+        }
         guard let session = getSession(pluginId: pluginId),
               let cookie = session.cookie,
               !cookie.isEmpty else {
+            await Self.finishCredentialEntry(
+                id: consoleEntryId,
+                start: consoleStart,
+                status: .error,
+                errorMessage: "本地无有效会话"
+            )
             return .invalid(reason: "Cookie 为空")
         }
 
-        return await validateCookie(pluginId: pluginId, cookie: cookie)
+        let result = await validateCookie(pluginId: pluginId, cookie: cookie)
+        let summary = Self.credentialDescription(for: result)
+        let consoleStatus: PluginConsoleEntryStatus
+        switch result {
+        case .valid, .expired:
+            consoleStatus = .success
+        case .invalid, .networkError:
+            consoleStatus = .error
+        }
+        await Self.finishCredentialEntry(
+            id: consoleEntryId,
+            start: consoleStart,
+            status: consoleStatus,
+            responseBody: consoleStatus == .success ? summary : nil,
+            errorMessage: consoleStatus == .error ? summary : nil
+        )
+        return result
+    }
+
+    private static func credentialDescription(for result: PlatformSessionValidationResult) -> String {
+        switch result {
+        case .valid:
+            return "valid"
+        case .expired:
+            return "expired"
+        case .invalid(let reason):
+            return "invalid: \(reason)"
+        case .networkError(let reason):
+            return "networkError: \(reason)"
+        }
+    }
+
+    private static func finishCredentialEntry(
+        id: UUID,
+        start: Date,
+        status: PluginConsoleEntryStatus,
+        responseBody: String? = nil,
+        errorMessage: String? = nil
+    ) async {
+        let duration = Date().timeIntervalSince(start)
+        await MainActor.run {
+            PluginConsoleService.shared.updateStatus(
+                id: id,
+                status: status,
+                duration: duration,
+                responseBody: responseBody,
+                errorMessage: errorMessage
+            )
+        }
     }
 
     /// 返回所有已持久化会话（按 pluginId 去重后的最新版本）。

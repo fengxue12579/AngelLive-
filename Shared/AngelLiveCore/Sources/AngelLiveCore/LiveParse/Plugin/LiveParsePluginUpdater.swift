@@ -115,8 +115,30 @@ public final class LiveParsePluginUpdater: @unchecked Sendable {
     }
 
     public func install(item: LiveParseRemotePluginItem) async throws -> LiveParsePluginManifest {
-        let zipData = try await downloadVerifiedZip(item: item)
-        return try LiveParsePluginInstaller.install(zipData: zipData, storage: storage)
+        let entryId = await Self.consoleBegin(
+            method: "install",
+            request: Self.consoleRequestBody(for: item)
+        )
+        let start = Date()
+        do {
+            let zipData = try await downloadVerifiedZip(item: item)
+            let manifest = try LiveParsePluginInstaller.install(zipData: zipData, storage: storage)
+            await Self.consoleFinish(
+                id: entryId,
+                start: start,
+                status: .success,
+                responseBody: Self.consoleSuccessBody(manifest: manifest, zipBytes: zipData.count)
+            )
+            return manifest
+        } catch {
+            await Self.consoleFinish(
+                id: entryId,
+                start: start,
+                status: .error,
+                errorMessage: error.localizedDescription
+            )
+            throw error
+        }
     }
 
     /// Install plugin from remote item, run smoke test, and persist `lastGoodVersion`.
@@ -132,6 +154,12 @@ public final class LiveParsePluginUpdater: @unchecked Sendable {
         manager: LiveParsePluginManager? = nil,
         afterInstallConsent: (@Sendable (LiveParsePluginManifest) async -> Bool)? = nil
     ) async throws -> LiveParsePluginManifest {
+        let entryId = await Self.consoleBegin(
+            method: "installAndActivate",
+            request: Self.consoleRequestBody(for: item)
+        )
+        let start = Date()
+
         var installedManifest: LiveParsePluginManifest?
         do {
             let manifest = try await install(item: item)
@@ -150,6 +178,12 @@ public final class LiveParsePluginUpdater: @unchecked Sendable {
                 smokePayload: smokePayload,
                 manager: manager
             )
+            await Self.consoleFinish(
+                id: entryId,
+                start: start,
+                status: .success,
+                responseBody: Self.consoleSuccessBody(manifest: manifest, smokeFunction: smokeFunction)
+            )
             return manifest
         } catch {
             if let manifest = installedManifest {
@@ -157,6 +191,12 @@ public final class LiveParsePluginUpdater: @unchecked Sendable {
             } else {
                 manager?.evict(pluginId: item.pluginId)
             }
+            await Self.consoleFinish(
+                id: entryId,
+                start: start,
+                status: .error,
+                errorMessage: error.localizedDescription
+            )
             throw error
         }
     }
@@ -170,6 +210,15 @@ public final class LiveParsePluginUpdater: @unchecked Sendable {
         smokePayload: [String: Any] = [:],
         manager: LiveParsePluginManager? = nil
     ) async throws {
+        let entryId = await Self.consoleBegin(
+            method: "activate",
+            request: """
+            pluginId: \(manifest.pluginId)
+            version: \(manifest.version)
+            smokeFunction: \(smokeFunction.isEmpty ? "-" : smokeFunction)
+            """
+        )
+        let start = Date()
         do {
             try await smokeTestInstalledPlugin(
                 manifest: manifest,
@@ -184,8 +233,20 @@ public final class LiveParsePluginUpdater: @unchecked Sendable {
             } else {
                 try persistLastGoodVersion(pluginId: manifest.pluginId, version: manifest.version)
             }
+            await Self.consoleFinish(
+                id: entryId,
+                start: start,
+                status: .success,
+                responseBody: "已激活 \(manifest.pluginId)@\(manifest.version) (lastGood 已写入)"
+            )
         } catch {
             rollbackInstalled(manifest: manifest, manager: manager)
+            await Self.consoleFinish(
+                id: entryId,
+                start: start,
+                status: .error,
+                errorMessage: error.localizedDescription
+            )
             throw error
         }
     }
@@ -348,5 +409,91 @@ public final class LiveParsePluginUpdater: @unchecked Sendable {
         @unknown default:
             return error.localizedDescription
         }
+    }
+}
+
+// MARK: - DevConsole 钩子
+
+private extension LiveParsePluginUpdater {
+    @MainActor
+    private static func makeConsoleEntry(method: String) -> UUID {
+        PluginConsoleService.shared.log(tag: "Plugin", method: method, status: .loading)
+    }
+
+    @MainActor
+    private static func attachRequest(id: UUID, body: String) {
+        PluginConsoleService.shared.updateRequest(id: id, body: body)
+    }
+
+    @MainActor
+    private static func finishEntry(
+        id: UUID,
+        duration: TimeInterval,
+        status: PluginConsoleEntryStatus,
+        responseBody: String?,
+        errorMessage: String?
+    ) {
+        PluginConsoleService.shared.updateStatus(
+            id: id,
+            status: status,
+            duration: duration,
+            responseBody: responseBody,
+            errorMessage: errorMessage
+        )
+    }
+
+    static func consoleBegin(method: String, request: String) async -> UUID {
+        await MainActor.run {
+            let id = makeConsoleEntry(method: method)
+            attachRequest(id: id, body: request)
+            return id
+        }
+    }
+
+    static func consoleFinish(
+        id: UUID,
+        start: Date,
+        status: PluginConsoleEntryStatus,
+        responseBody: String? = nil,
+        errorMessage: String? = nil
+    ) async {
+        let duration = Date().timeIntervalSince(start)
+        await MainActor.run {
+            finishEntry(
+                id: id,
+                duration: duration,
+                status: status,
+                responseBody: responseBody,
+                errorMessage: errorMessage
+            )
+        }
+    }
+
+    static func consoleRequestBody(for item: LiveParseRemotePluginItem) -> String {
+        let urls = item.downloadURLs.joined(separator: "\n  ")
+        return """
+        pluginId: \(item.pluginId)
+        version: \(item.version)
+        platform: \(item.platform ?? "-")
+        platformName: \(item.platformName ?? "-")
+        sha256: \(item.sha256)
+        downloadURLs:
+          \(urls.isEmpty ? "-" : urls)
+        """
+    }
+
+    static func consoleSuccessBody(manifest: LiveParsePluginManifest, zipBytes: Int? = nil, smokeFunction: String = "") -> String {
+        var lines: [String] = [
+            "pluginId: \(manifest.pluginId)",
+            "version: \(manifest.version)",
+            "displayName: \(manifest.displayName ?? "-")"
+        ]
+        if let zipBytes {
+            lines.append("zipBytes: \(zipBytes)")
+        }
+        if !smokeFunction.isEmpty {
+            lines.append("smokeFunction: \(smokeFunction)")
+        }
+        return lines.joined(separator: "\n")
     }
 }

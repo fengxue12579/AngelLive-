@@ -4,13 +4,16 @@
 //
 //  Created by pangchong on 2026/4/2.
 //
+//  iOS 这层只负责"宿主壳":独立 UIWindow + 可拖拽浮动球 + 底部 sheet 容器。
+//  控制台内容(header/搜索/筛选/列表/详情)统一走 AngelLiveCore.PluginConsoleView 复用。
+//
 
 import SwiftUI
 import AngelLiveCore
 
-#if IOS_DEVELOPER_MODE
-
 // MARK: - 管理器：直接添加到 keyWindow 上
+// 注:整段代码常驻所有构建,运行时是否真的弹窗由 GeneralSettingModel.globalDeveloperMode 控制,
+// 用户不开"开发者模式"就不会创建 overlayWindow,App Store 构建也只是多了未激活的代码。
 
 @MainActor
 final class DevConsoleWindowManager {
@@ -269,9 +272,9 @@ private class DevConsoleContainerView: UIView {
         insertSubview(dimming, belowSubview: floatingButton)
         self.dimmingView = dimming
 
-        // SwiftUI 面板
+        // SwiftUI 面板 —— 内容跨端复用 AngelLiveCore.PluginConsoleView,
+        // iOS 这一层只贴底部 sheet 外观(把手 + ultraThinMaterial 玻璃 + 拖拽下滑关闭)。
         let panel = ConsolePanel(
-            consoleService: PluginConsoleService.shared,
             onDismiss: { [weak self] in self?.dismissPanel() }
         )
         let hosting = UIHostingController(rootView: AnyView(panel))
@@ -331,28 +334,19 @@ private class DevConsoleContainerView: UIView {
     }
 }
 
-// MARK: - SwiftUI 控制台面板
+// MARK: - 底部 sheet 外观包装
 
+/// iOS 专有的底部 sheet 外观:顶部把手(可下滑关闭) + ultraThinMaterial 玻璃背景。
+/// 内容部分直接复用 AngelLiveCore 里的 `PluginConsoleView`。
 private struct ConsolePanel: View {
-    let consoleService: PluginConsoleService
     let onDismiss: () -> Void
 
     @State private var dragOffset: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            // 顶部把手（可拖拽关闭）
             panelHandle
-
-            // 标题栏
-            panelHeader
-
-            // 日志列表
-            if consoleService.entries.isEmpty {
-                emptyState
-            } else {
-                entryList
-            }
+            PluginConsoleView(onClose: onDismiss)
         }
         .modifier(PanelBackgroundModifier())
         .offset(y: max(0, dragOffset))
@@ -380,74 +374,9 @@ private struct ConsolePanel: View {
                     }
             )
     }
-
-    private var panelHeader: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "ladybug.fill")
-                .font(.system(size: 16))
-                .foregroundStyle(.red)
-
-            Text("插件控制台")
-                .font(.system(.headline, design: .rounded))
-
-            Spacer()
-
-            if !consoleService.entries.isEmpty {
-                headerButton(icon: "trash", action: {
-                    withAnimation { consoleService.clear() }
-                })
-            }
-
-            headerButton(icon: "xmark", action: onDismiss)
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 10)
-    }
-
-    private func headerButton(icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: icon == "xmark" ? 10 : 13, weight: .bold))
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
-        }
-        .modifier(HeaderButtonStyleModifier())
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "text.magnifyingglass")
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(.tertiary)
-            Text("暂无插件调用记录")
-                .font(.system(.subheadline, design: .rounded))
-                .foregroundStyle(.secondary)
-            Text("插件运行时日志将在此显示")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var entryList: some View {
-        List {
-            ForEach(consoleService.entries) { entry in
-                ConsoleEntryRow(entry: entry)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparatorTint(.secondary.opacity(0.15))
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-    }
 }
 
-// MARK: - iOS 26 适配 Modifier
-
-/// 面板背景：iOS 26 使用 glassEffect，低版本使用 ultraThinMaterial
+/// iOS 26 用 glassEffect,低版本用 ultraThinMaterial。
 private struct PanelBackgroundModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
@@ -465,394 +394,6 @@ private struct PanelBackgroundModifier: ViewModifier {
     }
 }
 
-/// 头部按钮样式：iOS 26 使用 glass circle，低版本使用 ultraThinMaterial
-private struct HeaderButtonStyleModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content
-                .background(.ultraThinMaterial, in: Circle())
-                .glassEffect(in: Circle())
-        } else {
-            content
-                .background(.ultraThinMaterial, in: Circle())
-        }
-    }
-}
-
-// MARK: - 共享时间格式
-
-private let consoleTimeFormatter: DateFormatter = {
-    let f = DateFormatter()
-    f.dateFormat = "HH:mm:ss.SSS"
-    return f
-}()
-
-// MARK: - 日志条目行
-
-private struct ConsoleEntryRow: View {
-    let entry: PluginConsoleEntry
-    @State private var showDetail = false
-
-    var body: some View {
-        Button {
-            if entry.status != .loading {
-                showDetail = true
-            }
-        } label: {
-            HStack(spacing: 10) {
-                // 左侧状态指示条
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(statusColor)
-                    .frame(width: 3, height: 36)
-
-                // 标题区域
-                VStack(alignment: .leading, spacing: 4) {
-                    // 标题：[tag] 插件名 · 方法名
-                    HStack(spacing: 6) {
-                        Text(entry.tag)
-                            .font(.system(.caption2, design: .monospaced))
-                            .fontWeight(.bold)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1.5)
-                            .background(statusColor.opacity(0.85), in: Capsule())
-
-                        Text(entry.method)
-                            .font(.system(.subheadline, design: .monospaced))
-                            .fontWeight(.medium)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                    }
-
-                    // 副标题：时间 + 耗时
-                    HStack(spacing: 6) {
-                        Text(consoleTimeFormatter.string(from: entry.timestamp))
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-
-                        if let duration = entry.duration {
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-                            Text(String(format: "%.0fms", duration * 1000))
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-
-                Spacer()
-
-                // 右侧：状态标签 + 详情箭头
-                HStack(spacing: 8) {
-                    statusBadge
-
-                    if entry.status != .loading {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .sheet(isPresented: $showDetail) {
-            ConsoleEntryDetailView(entry: entry)
-        }
-    }
-
-    private var statusColor: Color {
-        switch entry.status {
-        case .loading: .orange
-        case .success: .green
-        case .error: .red
-        }
-    }
-
-    @ViewBuilder
-    private var statusBadge: some View {
-        switch entry.status {
-        case .loading:
-            ProgressView().controlSize(.small)
-        case .success:
-            Text("成功")
-                .font(.system(.caption2, design: .rounded))
-                .fontWeight(.semibold)
-                .foregroundStyle(.green)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(.green.opacity(0.12), in: Capsule())
-        case .error:
-            Text("失败")
-                .font(.system(.caption2, design: .rounded))
-                .fontWeight(.semibold)
-                .foregroundStyle(.red)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(.red.opacity(0.12), in: Capsule())
-        }
-    }
-}
-
-// MARK: - 条目详情页
-
-private struct ConsoleEntryDetailView: View {
-    let entry: PluginConsoleEntry
-    @Environment(\.dismiss) private var dismiss
-    @State private var copiedIndex: Int? = nil
-
-    var body: some View {
-        NavigationStack {
-            List {
-                // 基本信息
-                Section("基本信息") {
-                    row("插件", entry.tag)
-                    row("方法", entry.method)
-                    row("时间", consoleTimeFormatter.string(from: entry.timestamp))
-                    if let duration = entry.duration {
-                        row("耗时", String(format: "%.1fms", duration * 1000))
-                    }
-                    HStack {
-                        Text("状态")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        statusLabel
-                    }
-                }
-
-                // 插件调用参数
-                if let body = entry.requestBody, !body.isEmpty, body != "{}" {
-                    Section("调用参数") {
-                        Text(prettyJSON(body))
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                    }
-                }
-
-                // 插件返回结果 / 错误
-                if let response = entry.responseBody {
-                    Section("返回数据") {
-                        Text(prettyJSON(response))
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .lineLimit(50)
-                    }
-                }
-
-                if let error = entry.errorMessage {
-                    Section("错误信息") {
-                        Text(error)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.red)
-                            .textSelection(.enabled)
-                    }
-                }
-
-                // HTTP 请求记录
-                ForEach(Array(entry.httpRecords.enumerated()), id: \.element.id) { index, record in
-                    httpRecordSection(record, index: index)
-                }
-            }
-            .navigationTitle("\(entry.tag).\(entry.method)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
-                }
-            }
-        }
-    }
-
-    // MARK: - HTTP 请求段
-
-    @ViewBuilder
-    private func httpRecordSection(_ record: PluginConsoleHTTPRecord, index: Int) -> some View {
-        let isCopied = copiedIndex == index
-
-        Section {
-            // URL + Method
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(record.method)
-                        .font(.system(.caption2, design: .monospaced))
-                        .fontWeight(.bold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1.5)
-                        .background(.blue.opacity(0.8), in: Capsule())
-
-                    if let code = record.statusCode {
-                        Text("\(code)")
-                            .font(.system(.caption2, design: .monospaced))
-                            .fontWeight(.bold)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1.5)
-                            .background(httpStatusColor(code).opacity(0.8), in: Capsule())
-                    }
-
-                    if let duration = record.duration {
-                        Text(String(format: "%.0fms", duration * 1000))
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                Text(record.url)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .lineLimit(3)
-            }
-
-            // 请求头
-            DisclosureGroup("请求头") {
-                ForEach(record.headers.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(key)
-                            .font(.system(.caption2, design: .monospaced))
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        Text(value)
-                            .font(.system(.caption2, design: .monospaced))
-                            .textSelection(.enabled)
-                            .lineLimit(2)
-                    }
-                }
-            }
-            .font(.system(.caption, design: .rounded))
-
-            // 请求体
-            if let body = record.body, !body.isEmpty {
-                DisclosureGroup("请求体") {
-                    Text(prettyJSON(body))
-                        .font(.system(.caption2, design: .monospaced))
-                        .textSelection(.enabled)
-                }
-                .font(.system(.caption, design: .rounded))
-            }
-
-            // 响应头
-            if let respHeaders = record.responseHeaders, !respHeaders.isEmpty {
-                DisclosureGroup("响应头") {
-                    ForEach(respHeaders.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(key)
-                                .font(.system(.caption2, design: .monospaced))
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                            Text(value)
-                                .font(.system(.caption2, design: .monospaced))
-                                .textSelection(.enabled)
-                                .lineLimit(2)
-                        }
-                    }
-                }
-                .font(.system(.caption, design: .rounded))
-            }
-
-            // 响应体
-            if let respBody = record.responseBody {
-                DisclosureGroup("响应体") {
-                    Text(prettyJSON(respBody))
-                        .font(.system(.caption2, design: .monospaced))
-                        .textSelection(.enabled)
-                        .lineLimit(30)
-                }
-                .font(.system(.caption, design: .rounded))
-            }
-
-            // 错误
-            if let error = record.error {
-                Text(error)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.red)
-            }
-
-            // 复制 cURL
-            Button {
-                UIPasteboard.general.string = buildCurl(for: record)
-                copiedIndex = index
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    if copiedIndex == index { copiedIndex = nil }
-                }
-            } label: {
-                HStack {
-                    Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                    Text(isCopied ? "已复制" : "复制 cURL")
-                }
-                .font(.system(.caption))
-                .foregroundStyle(isCopied ? .green : .accentColor)
-                .frame(maxWidth: .infinity)
-            }
-        } header: {
-            Text("HTTP 请求 #\(index + 1)")
-        }
-    }
-
-    // MARK: - Helpers
-
-    @ViewBuilder
-    private var statusLabel: some View {
-        switch entry.status {
-        case .loading:
-            Label("加载中", systemImage: "clock")
-                .font(.caption)
-                .foregroundStyle(.orange)
-        case .success:
-            Label("成功", systemImage: "checkmark.circle.fill")
-                .font(.caption)
-                .foregroundStyle(.green)
-        case .error:
-            Label("失败", systemImage: "xmark.circle.fill")
-                .font(.caption)
-                .foregroundStyle(.red)
-        }
-    }
-
-    private func row(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-                .font(.system(.subheadline, design: .monospaced))
-        }
-    }
-
-    private func httpStatusColor(_ code: Int) -> Color {
-        switch code {
-        case 200..<300: .green
-        case 300..<400: .orange
-        default: .red
-        }
-    }
-
-    private func prettyJSON(_ raw: String) -> String {
-        guard let data = raw.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data),
-              let pretty = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]),
-              let str = String(data: pretty, encoding: .utf8) else {
-            return raw
-        }
-        return str
-    }
-
-    /// 从真实 HTTP 请求构造 cURL（含 Cookie、所有请求头）
-    private func buildCurl(for record: PluginConsoleHTTPRecord) -> String {
-        let escaped = { (s: String) in s.replacingOccurrences(of: "'", with: "'\\''") }
-        var parts = ["curl -X \(record.method) '\(escaped(record.url))'"]
-
-        for (key, value) in record.headers.sorted(by: { $0.key < $1.key }) {
-            parts.append("  -H '\(key): \(escaped(value))'")
-        }
-
-        if let body = record.body, !body.isEmpty {
-            parts.append("  -d '\(escaped(body))'")
-        }
-
-        return parts.joined(separator: " \\\n")
-    }
-}
-
 // MARK: - SwiftUI 入口
 
 struct DevConsoleOverlay: View {
@@ -862,5 +403,3 @@ struct DevConsoleOverlay: View {
             .onAppear { DevConsoleWindowManager.shared.setup() }
     }
 }
-
-#endif

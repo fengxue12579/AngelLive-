@@ -12,7 +12,7 @@ internal import AVFoundation
 
 @inline(__always)
 func print(_ items: Any..., separator: String = " ", terminator: String = "\n") {
-#if IOS_DEVELOPER_MODE
+#if DEBUG
     let message = items.map { String(describing: $0) }.joined(separator: separator)
     Swift.print(message, terminator: terminator)
 #endif
@@ -45,13 +45,10 @@ struct AngelLiveApp: App {
 }
 
 private extension View {
-    @ViewBuilder
+    /// 始终编译 DevConsoleOverlay,运行时是否显示由 GeneralSettingModel.developerModeEnabled 控制。
+    /// App Store 构建只是常驻一个未激活的 overlay 容器,用户不开"开发者模式"就完全感知不到。
     func developerModeConsoleOverlay() -> some View {
-        #if IOS_DEVELOPER_MODE
         self.overlay { DevConsoleOverlay() }
-        #else
-        self
-        #endif
     }
 }
 
@@ -62,7 +59,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // 仅预配置播放类别，避免应用启动时立刻打断其他 App 的音频。
         configureAudioSessionForPlayback()
-        #if IOS_DEVELOPER_MODE
+        #if DEBUG
         logPluginInstallLocation()
         #endif
 

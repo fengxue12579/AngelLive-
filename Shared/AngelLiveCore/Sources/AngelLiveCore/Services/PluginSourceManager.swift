@@ -581,6 +581,17 @@ public final class PluginSourceManager: @unchecked Sendable {
     public func uninstallPlugin(pluginId: String) -> Bool {
         let storage = LiveParsePlugins.shared.storage
         let pluginDirectory = storage.pluginDirectory(pluginId: pluginId)
+        let start = Date()
+        let consoleRequest = """
+        pluginId: \(pluginId)
+        directory: \(pluginDirectory.path)
+        """
+        let consoleIdBox = ConsoleEntryIdBox()
+        Task { @MainActor in
+            let id = PluginConsoleService.shared.log(tag: "Plugin", method: "uninstall", status: .loading)
+            PluginConsoleService.shared.updateRequest(id: id, body: consoleRequest)
+            consoleIdBox.id = id
+        }
 
         // 1. 先从内存中驱逐插件，防止卸载过程中被调用
         LiveParsePlugins.shared.evict(pluginId: pluginId)
@@ -594,16 +605,30 @@ public final class PluginSourceManager: @unchecked Sendable {
         } catch {
             errorMessage = "删除插件状态失败: \(error.localizedDescription)"
             Logger.error(error, message: "Failed to update state for plugin uninstall: \(pluginId)", category: .plugin)
+            let errMsg = "saveState 失败: \(error.localizedDescription)"
+            let duration = Date().timeIntervalSince(start)
+            Task { @MainActor in
+                if let id = consoleIdBox.id {
+                    PluginConsoleService.shared.updateStatus(
+                        id: id,
+                        status: .error,
+                        duration: duration,
+                        errorMessage: errMsg
+                    )
+                }
+            }
             return false
         }
 
         // 3. 删除文件（状态已安全，文件删除失败不影响一致性）
+        var fileRemovalError: Error?
         do {
             if FileManager.default.fileExists(atPath: pluginDirectory.path) {
                 try FileManager.default.removeItem(at: pluginDirectory)
             }
         } catch {
             Logger.warning("Failed to delete plugin files for \(pluginId): \(error.localizedDescription)", category: .plugin)
+            fileRemovalError = error
             // 文件删除失败不视为致命错误，状态已正确更新
         }
 
@@ -614,7 +639,31 @@ public final class PluginSourceManager: @unchecked Sendable {
         if let item = remotePlugins.first(where: { $0.id == pluginId }) {
             item.installState = .notInstalled
         }
+        var responseLines = ["已驱逐插件: \(pluginId)", "状态文件已更新"]
+        if let fileRemovalError {
+            responseLines.append("⚠ 文件未能完全删除: \(fileRemovalError.localizedDescription)")
+        } else {
+            responseLines.append("文件已删除")
+        }
+        let responseBody = responseLines.joined(separator: "\n")
+        let duration = Date().timeIntervalSince(start)
+        Task { @MainActor in
+            if let id = consoleIdBox.id {
+                PluginConsoleService.shared.updateStatus(
+                    id: id,
+                    status: .success,
+                    duration: duration,
+                    responseBody: responseBody
+                )
+            }
+        }
         return true
+    }
+
+    /// 在 sync 上下文里跟 main-actor Task 之间传递 console entry id 的小盒子。
+    /// 所有 Task 都 hop 到 MainActor 后才读写 id,顺序由 MainActor 串行性保证。
+    private final class ConsoleEntryIdBox: @unchecked Sendable {
+        var id: UUID?
     }
 
     // MARK: - Error Description Helper

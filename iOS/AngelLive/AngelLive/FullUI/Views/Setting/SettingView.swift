@@ -149,7 +149,6 @@ struct SettingView: View {
                     Text("记录")
                 }
 
-                #if IOS_DEVELOPER_MODE
                 // 开发者
                 Section {
                     HStack {
@@ -167,7 +166,6 @@ struct SettingView: View {
                         .font(.caption)
                         .foregroundStyle(AppConstants.Colors.secondaryText)
                 }
-                #endif
 
                 // 关于
                 Section {
