@@ -927,6 +927,16 @@ extension RoomInfoViewModel: KSPlayerLayerDelegate {
     @MainActor
     private func tickStallWatchdog() {
         guard let layer = watchedPlayerLayer else { return }
+        // KSAVPlayer 路径:bytesRead 来自 HLS access log 累加(`numberOfBytesTransferred`),
+        // 仅在 segment 边界(4-10s)跳变;currentPlaybackTime 在部分直播流上推进不稳。
+        // 任一信号都不可靠,会把"正常播放"误判成 stall 触发 CDN failover 死循环。
+        // watchdog 原本为 KSMEPlayer 路径"FFmpeg 静默卡死不冒泡 error"设计,AV 路径
+        // 出错有清晰的 .failed,由 KSPlayerLayer.finish 走 playerTypes fallback 链
+        // 自动切到 KSMEPlayer 兜底,watchdog 不必插手。fallback 到 ME 后 layer.player
+        // 会换成 KSMEPlayer 实例,这里的 guard 自然失效,watchdog 恢复工作。
+        if layer.player is KSAVPlayer {
+            return
+        }
         let state = layer.state
         // 不监控 .preparing —— FFmpeg avformat_open_input 期间 pbArray 还未填充,
         // bytesRead 恒为 0,会被误判。真正的 open 卡死由 KSOptions.rw_timeout(默认 9s)
