@@ -107,5 +107,5 @@ CLAUDE.md
 # macOS Finder metadata
 .DS_Store
 
-# Bugsnag API keys (per-platform). 模板文件 BugsnagSecrets.swift.template 仍会提交
-Shared/AngelLiveDependencies/Sources/BugsnagSecrets.swift
+# Bugsnag API keys (per-platform). 占位 plist (BugsnagSecrets.plist) 仍会提交
+Shared/AngelLiveDependencies/Sources/Resources/BugsnagSecrets.local.plist

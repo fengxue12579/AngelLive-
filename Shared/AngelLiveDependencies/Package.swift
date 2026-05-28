@@ -109,7 +109,15 @@ let package = Package(
         .target(
             name: "AngelLiveDependencies",
             dependencies: targetDependencies,
-            path: "Sources"
+            path: "Sources",
+            // Resources/ 下放 Bugsnag 配置 plist:
+            // - BugsnagSecrets.plist        占位(git 跟踪,空值)
+            // - BugsnagSecrets.local.plist  真 key(gitignored,可选)
+            // .process 对目录里所有文件按 build rule 处理;文件不存在不会报错,
+            // 因此 local.plist 缺失也能编译。
+            resources: [
+                .process("Resources")
+            ]
         ),
     ]
 )
