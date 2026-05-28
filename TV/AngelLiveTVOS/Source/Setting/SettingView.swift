@@ -142,7 +142,12 @@ struct SettingView: View {
                                     .foregroundStyle(.gray)
                             } else if index == 7 {
                                 if isClearingCache {
-                                    ProgressView()
+                                    HStack(spacing: 8) {
+                                        ProgressView()
+                                        Text("清理中...")
+                                            .font(.system(size: 30))
+                                            .foregroundStyle(.gray)
+                                    }
                                 } else {
                                     Text(cacheSizeText)
                                         .font(.system(size: 30))
@@ -269,42 +274,43 @@ struct SettingView: View {
 
     // MARK: - 缓存维护
     private func refreshCacheSize() async {
-        let sizes = await Task.detached(priority: .utility) {
-            CacheMaintenanceService.computeNonImageSizes()
-        }.value
-        let imageBytes = await imageDiskCacheSize()
-        let total = sizes.urlCache + sizes.tmp + sizes.pluginOldVersions + imageBytes
+        let total = await CacheMaintenanceService.currentTotalSize(imageCache: Self.kingfisherBridge)
         await MainActor.run {
+            guard !isClearingCache else { return }
             cacheSizeText = CacheMaintenanceService.formatBytes(total)
-        }
-    }
-
-    private func imageDiskCacheSize() async -> Int64 {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Int64, Never>) in
-            ImageCache.default.calculateDiskStorageSize { result in
-                let bytes = (try? result.get()).map(Int64.init) ?? 0
-                continuation.resume(returning: bytes)
-            }
         }
     }
 
     private func clearAllCaches() async {
         await MainActor.run { isClearingCache = true }
-
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            ImageCache.default.clearDiskCache {
-                continuation.resume()
-            }
+        let total = await CacheMaintenanceService.purgeAllAndAwaitSettled(
+            imageCache: Self.kingfisherBridge,
+            // tvOS 清理后立即同步到 App Group,让 TopShelf 看到的也是清理后的状态
+            extraWork: { PluginAppGroupSync.syncToAppGroup() }
+        )
+        await MainActor.run {
+            cacheSizeText = CacheMaintenanceService.formatBytes(total)
+            isClearingCache = false
         }
-        ImageCache.default.clearMemoryCache()
-        CacheMaintenanceService.clearURLCacheAndTmp()
-        CacheMaintenanceService.prunePluginOldVersions()
-        // tvOS 清理后立即同步到 App Group,让 TopShelf 看到的也是清理后的状态
-        PluginAppGroupSync.syncToAppGroup()
-
-        await refreshCacheSize()
-        await MainActor.run { isClearingCache = false }
     }
+
+    private static let kingfisherBridge = CacheMaintenanceService.ImageCacheBridge(
+        measureBytes: {
+            await withCheckedContinuation { (cont: CheckedContinuation<Int64, Never>) in
+                ImageCache.default.calculateDiskStorageSize { result in
+                    cont.resume(returning: (try? result.get()).map(Int64.init) ?? 0)
+                }
+            }
+        },
+        clearDisk: {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                ImageCache.default.clearDiskCache { cont.resume() }
+            }
+        },
+        clearMemory: {
+            ImageCache.default.clearMemoryCache()
+        }
+    )
 }
 
 #Preview {

@@ -188,8 +188,13 @@ struct SettingView: View {
                             Spacer()
 
                             if isClearingCache {
-                                ProgressView()
-                                    .controlSize(.small)
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("清理中...")
+                                        .font(.subheadline)
+                                        .foregroundStyle(AppConstants.Colors.secondaryText)
+                                }
                             } else {
                                 Text(cacheSizeText)
                                     .font(.subheadline)
@@ -272,40 +277,41 @@ struct SettingView: View {
     }
 
     private func refreshCacheSize() async {
-        let sizes = await Task.detached(priority: .utility) {
-            CacheMaintenanceService.computeNonImageSizes()
-        }.value
-        let imageBytes = await imageDiskCacheSize()
-        let total = sizes.urlCache + sizes.tmp + sizes.pluginOldVersions + imageBytes
+        let total = await CacheMaintenanceService.currentTotalSize(imageCache: Self.kingfisherBridge)
         await MainActor.run {
+            guard !isClearingCache else { return }
             cacheSizeText = CacheMaintenanceService.formatBytes(total)
-        }
-    }
-
-    private func imageDiskCacheSize() async -> Int64 {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Int64, Never>) in
-            ImageCache.default.calculateDiskStorageSize { result in
-                let bytes = (try? result.get()).map(Int64.init) ?? 0
-                continuation.resume(returning: bytes)
-            }
         }
     }
 
     private func clearAllCaches() async {
         await MainActor.run { isClearingCache = true }
-
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            ImageCache.default.clearDiskCache {
-                continuation.resume()
-            }
+        let total = await CacheMaintenanceService.purgeAllAndAwaitSettled(
+            imageCache: Self.kingfisherBridge
+        )
+        await MainActor.run {
+            cacheSizeText = CacheMaintenanceService.formatBytes(total)
+            isClearingCache = false
         }
-        ImageCache.default.clearMemoryCache()
-        CacheMaintenanceService.clearURLCacheAndTmp()
-        CacheMaintenanceService.prunePluginOldVersions()
-
-        await refreshCacheSize()
-        await MainActor.run { isClearingCache = false }
     }
+
+    private static let kingfisherBridge = CacheMaintenanceService.ImageCacheBridge(
+        measureBytes: {
+            await withCheckedContinuation { (cont: CheckedContinuation<Int64, Never>) in
+                ImageCache.default.calculateDiskStorageSize { result in
+                    cont.resume(returning: (try? result.get()).map(Int64.init) ?? 0)
+                }
+            }
+        },
+        clearDisk: {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                ImageCache.default.clearDiskCache { cont.resume() }
+            }
+        },
+        clearMemory: {
+            ImageCache.default.clearMemoryCache()
+        }
+    )
 }
 
 // MARK: - CloudKit Status View

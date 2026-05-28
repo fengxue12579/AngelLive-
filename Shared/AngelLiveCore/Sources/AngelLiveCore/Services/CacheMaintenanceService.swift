@@ -144,6 +144,77 @@ public struct CacheMaintenanceService: Sendable {
         return formatter.string(fromByteCount: max(0, bytes))
     }
 
+    // MARK: - 图片缓存桥接 (避免在 Core 中依赖 Kingfisher)
+
+    /// 把平台层(iOS/macOS/tvOS)的图片缓存能力桥接进 Service。
+    /// 调用方各自构造一份(通常用 Kingfisher 的 `ImageCache.default`)。
+    public struct ImageCacheBridge: Sendable {
+        public let measureBytes: @Sendable () async -> Int64
+        public let clearDisk: @Sendable () async -> Void
+        public let clearMemory: @Sendable () -> Void
+
+        public init(
+            measureBytes: @Sendable @escaping () async -> Int64,
+            clearDisk: @Sendable @escaping () async -> Void,
+            clearMemory: @Sendable @escaping () -> Void
+        ) {
+            self.measureBytes = measureBytes
+            self.clearDisk = clearDisk
+            self.clearMemory = clearMemory
+        }
+    }
+
+    // MARK: - 统一清理入口
+
+    /// 当前总缓存字节(图片缓存 + URLCache + tmp + 插件旧版本)。
+    public static func currentTotalSize(imageCache: ImageCacheBridge) async -> Int64 {
+        let sizes = await Task.detached(priority: .utility) {
+            computeNonImageSizes()
+        }.value
+        let imageBytes = await imageCache.measureBytes()
+        return sizes.urlCache + sizes.tmp + sizes.pluginOldVersions + imageBytes
+    }
+
+    /// 一次性清理所有缓存。`extraWork` 用于平台特殊收尾(如 tvOS 同步 App Group)。
+    public static func purgeAll(
+        imageCache: ImageCacheBridge,
+        extraWork: (@Sendable () -> Void)? = nil
+    ) async {
+        await imageCache.clearDisk()
+        imageCache.clearMemory()
+
+        await Task.detached(priority: .utility) {
+            clearURLCacheAndTmp()
+            prunePluginOldVersions()
+            extraWork?()
+        }.value
+    }
+
+    /// 清理 + 短轮询等统计 API 静下来,返回最终大小。
+    ///
+    /// purgeAll 完成后,Kingfisher/URLCache 的目录大小统计偶有数百毫秒延迟,
+    /// 立即读出来仍可能是清理前的旧值。这里短轮询等盘真静下来。
+    /// 阈值 `tolerance` 默认 512KB,容忍 sqlite WAL、Kingfisher 索引文件等正常残留。
+    public static func purgeAllAndAwaitSettled(
+        imageCache: ImageCacheBridge,
+        extraWork: (@Sendable () -> Void)? = nil,
+        tolerance: Int64 = 512 * 1024,
+        maxPolls: Int = 8,
+        pollIntervalNanos: UInt64 = 250_000_000
+    ) async -> Int64 {
+        await purgeAll(imageCache: imageCache, extraWork: extraWork)
+
+        var latest = await currentTotalSize(imageCache: imageCache)
+        guard latest > tolerance else { return latest }
+
+        for _ in 0..<maxPolls {
+            try? await Task.sleep(nanoseconds: pollIntervalNanos)
+            latest = await currentTotalSize(imageCache: imageCache)
+            if latest <= tolerance { return latest }
+        }
+        return latest
+    }
+
     // MARK: - 私有
 
     /// 计算插件目录中所有"非最新且非保留"版本占用的字节数。
