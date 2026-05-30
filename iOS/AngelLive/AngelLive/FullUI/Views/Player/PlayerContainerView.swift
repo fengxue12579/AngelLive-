@@ -689,8 +689,10 @@ struct PlayerContentView: View {
         // sleep 前采样 bytesRead 作为"网络是否在动"的基线。
         let startBytes = playerCoordinator.playerLayer?.player.dynamicInfo.bytesRead ?? 0
 
+        // 起播超时阈值 20s:国外 CDN / 慢起播流给足首帧时间,避免探测/缓冲途中被误杀,
+        // 触发 refresh→重启同 kernel→再探的死循环。
         do {
-            try await Task.sleep(nanoseconds: 12_000_000_000)
+            try await Task.sleep(nanoseconds: 20_000_000_000)
         } catch {
             return
         }
@@ -706,7 +708,7 @@ struct PlayerContentView: View {
         if endBytes > startBytes + Self.watchdogBytesProgressThreshold {
             watchdogRetried = true
             Logger.debug(
-                "[PlayerFlow] watchdog: iOS 12s 内 bytes 推进 \(endBytes - startBytes)B,跳过 refresh url=\(compactURL(url))",
+                "[PlayerFlow] watchdog: iOS 20s 内 bytes 推进 \(endBytes - startBytes)B,跳过 refresh url=\(compactURL(url))",
                 category: .player
             )
             return
@@ -714,7 +716,7 @@ struct PlayerContentView: View {
 
         watchdogRetried = true
         Logger.debug(
-            "[PlayerFlow] watchdog: iOS 起播 12s 超时(bytesRead 无推进),refreshPlayback url=\(compactURL(url))",
+            "[PlayerFlow] watchdog: iOS 起播 20s 超时(bytesRead 无推进),refreshPlayback url=\(compactURL(url))",
             category: .player
         )
         viewModel.refreshPlayback()
