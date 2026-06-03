@@ -15,7 +15,8 @@
 |---|---|---|---|
 | ① 错误可见性层 | 收藏/凭证/订阅源 · iOS/macOS/tvOS | ✅ 已完成并验证(三端 build) | `58d2703` |
 | ② 本地存储 + iCloud 可选 | 收藏 · iOS/macOS | ✅ 已完成(本地优先/union/开关) | `40fb7ee` |
-| ③ CKSyncEngine | 收藏 · iOS/macOS | ⚠ **代码完成,待真机验证** | `6bcc409` 引擎核心 / `b8d9156` 接线 |
+| ③ CKSyncEngine | 收藏 · iOS/macOS | ⚠ 代码完成;真机验证发现「拉取闸」bug 已修(见下),待复验 | `6bcc409` 引擎核心 / `b8d9156` 接线 / fetch 闸修复(未提交) |
+| ③+ 推送 | 收藏实时(CKSubscription 静默推送) | ⏳ 计划中(2026-06-04 测) | — |
 | ② / ③ | TV 收藏(独立 AppFavoriteModel) | ⏳ 未做 | 任务 #6 |
 | ③ | 凭证/订阅源 手动+重试退避 | ⏳ 未做 | — |
 
@@ -31,6 +32,23 @@
 两个不确定点在 `FavoriteSyncEngine.swift` 的 `start()` 与 `makeRecord` 处有注释标注,便于按验证结果调整。
 
 > 注意:Phase③ 把收藏的 iCloud 路径从默认 Zone 切到自定义 Zone(迁移即切换)。灰度期旧版本设备仍读写默认 Zone,与新版自定义 Zone 互不可见,各自更新后合并。
+
+### 真机验证发现与修复(2026-06-03)
+
+**现象**:对端的增/删拉不到(Mac 删 → iOS 仍在;冷启动仍在),一度误判为「删除同步坏」「迁移复活」「搜索只出直播」。逐项排除后定位到真因。
+
+**逐层结论**:
+- 删除发送(`enqueueDelete` → `nextRecordZoneChangeBatch`;删除自动入批、不经 `recordProvider`)与 `applyFetched` 删除应用(按 `recordName == uniqueKey` 匹配)**均正确**。
+- 「搜索只出直播」是**误判**:`FavoriteView` 搜索按 `userName`/`roomTitle` 过滤 `groupedRoomList`,不限直播状态;非直播收藏在列表、名字正常、可搜到。(附带发现:部分非直播主播落「未知状态」= 该条直播状态刷新接口失败的兜底,属刷新可靠性,另议。)
+- **真因**:iOS 的 `fetchChanges()` 被 `cloudKitReady` 预检挡住(`AppFavoriteModel.syncWithActor` / `pullToRefresh`)。该账号预检在分流/代理网络下**瞬时假阴性**,一旦 false,拉取被**静默跳过** → 对端增删永远拉不到。
+- 叠加:**全工程无任何 CKSubscription 推送**,对端只能靠主动拉取,本就非实时 → 表现为「延迟/怎么刷都不动」。
+- 不对称根源:发送侧不设防(`addFavorite` 无条件 `enqueueSave`),拉取侧被闸挡 → 「发得出、收不回」。
+
+**已修(待提交)**:`syncWithActor` / `pullToRefresh` 去掉 `if cloudKitReady` 包裹,改为无条件 `await FavoriteSyncEngine.shared.fetchChanges()`(引擎自带退避/错误处理;`cloudKitReady` 仅留作 UI 状态展示)。iOS + macOS 均 BUILD SUCCEEDED,待真机复验上方清单第 1、2 条。
+
+**仍潜伏(未修)**:老收藏因默认 Zone 迁移**跨设备复活** —— 默认 Zone 旧记录永不清理 + 迁移按设备独立只跑一次,删除老收藏后尚未迁移的设备会把它读回并 re-save。本次症状是全新主播(从未进默认 Zone),故与此无关;隐患仍在,倾向方案 C(删老收藏时同删默认 Zone 那条 + **持久重试**,因 `FavoriteService.deleteRecord` 一次性无退避)。
+
+**下一步(计划 2026-06-04 测)**:加 CKSubscription **静默推送**做到「开着就实时」。静默推送(content-available)**无需用户授权、不弹框**,仅需 Push 能力 + Remote notifications 后台模式 + `registerForRemoteNotifications()`;App 被杀场景由启动拉取兜底,无需推送。
 
 ---
 

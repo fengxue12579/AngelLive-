@@ -178,9 +178,10 @@ public final class AppFavoriteModel {
         let state = await actor.getState()
         self.cloudKitReady = state.0
         self.cloudKitStateString = state.1
-        if cloudKitReady {
-            await FavoriteSyncEngine.shared.fetchChanges()
-        }
+        // 拉取不依赖 cloudKitReady 预检:该账号预检在分流/代理环境下会瞬时假阴性,
+        // 导致 fetchChanges 被永久跳过 —— 对端的增/删永远拉不到。引擎自带退避与错误处理,
+        // 账号真不可用时 fetch 会安全失败、不阻塞本地。cloudKitReady 仅用于下方 UI 状态展示。
+        await FavoriteSyncEngine.shared.fetchChanges()
 
         // 用本地真相(引擎可能已更新)刷新直播状态并应用。
         let current = await FavoriteLocalStore.shared.load()
@@ -234,9 +235,10 @@ public final class AppFavoriteModel {
         let state = await actor.getState()
         self.cloudKitReady = state.0
         self.cloudKitStateString = state.1
-        if cloudKitReady {
-            await FavoriteSyncEngine.shared.fetchChanges()
-        }
+        // 拉取不依赖 cloudKitReady 预检:该账号预检在分流/代理环境下会瞬时假阴性,
+        // 导致 fetchChanges 被永久跳过 —— 对端的增/删永远拉不到。引擎自带退避与错误处理,
+        // 账号真不可用时 fetch 会安全失败、不阻塞本地。cloudKitReady 仅用于下方 UI 状态展示。
+        await FavoriteSyncEngine.shared.fetchChanges()
 
         let current = await FavoriteLocalStore.shared.load()
         await refreshStatesAndApply(members: current)
