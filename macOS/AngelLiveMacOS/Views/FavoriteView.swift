@@ -46,14 +46,14 @@ struct FavoriteView: View {
             ScrollView {
                 if viewModel.isLoading {
                     skeletonView(geometry: geometry)
-                } else if viewModel.cloudKitReady {
-                    if viewModel.roomList.isEmpty {
-                        emptyStateView()
-                    } else {
-                        favoriteContentView(geometry: geometry)
-                    }
-                } else {
+                } else if viewModel.cloudReturnError {
+                    // 仅真错误(未登录/拉取失败)显示同步不可用。关同步时 cloudKitReady 也为 false,
+                    // 但那是正常的纯本地态,应继续展示本地收藏(与 iOS 一致)。
                     cloudKitErrorView()
+                } else if viewModel.roomList.isEmpty {
+                    emptyStateView()
+                } else {
+                    favoriteContentView(geometry: geometry)
                 }
             }
             .onTapGesture {

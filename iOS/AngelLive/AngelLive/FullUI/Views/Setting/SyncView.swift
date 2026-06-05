@@ -684,16 +684,8 @@ struct SyncView: View {
     }
 
     private var statusText: String {
-        switch favoriteModel.syncStatus {
-        case .syncing:
-            return "正在同步..."
-        case .success:
-            return "iCloud 已就绪，数据已同步"
-        case .error:
-            return favoriteModel.cloudKitStateString
-        case .notLoggedIn:
-            return "未登录 iCloud，请前往系统设置登录"
-        }
+        // 三端统一文案,见 AppFavoriteModel.syncStatusDisplayText。
+        favoriteModel.syncStatusDisplayText
     }
 
     private var loggedInPlatformCount: Int {

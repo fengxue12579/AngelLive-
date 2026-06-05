@@ -12,8 +12,6 @@ import Kingfisher
 struct SettingView: View {
     @ObservedObject private var syncService = PlatformCredentialSyncService.shared
     @State private var generalSetting = GeneralSettingModel()
-    @State private var cloudKitReady = false
-    @State private var cloudKitStateString = "检查中..."
     @State private var cacheSizeText: String = "计算中..."
     @State private var isClearingCache = false
     @State private var showClearCacheConfirm = false
@@ -246,16 +244,7 @@ struct SettingView: View {
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.large)
             .task {
-                if pluginAvailability.hasAvailablePlugins {
-                    await checkCloudKitStatus()
-                }
                 await refreshCacheSize()
-            }
-            .onChange(of: pluginAvailability.hasAvailablePlugins) { _, hasPlugins in
-                guard hasPlugins else { return }
-                Task {
-                    await checkCloudKitStatus()
-                }
             }
             .alert(
                 "确认清除所有缓存?",
@@ -269,11 +258,6 @@ struct SettingView: View {
                 Text("将清理图片缓存、插件旧版本及网络临时文件,不影响收藏与登录状态。")
             }
         }
-    }
-
-    private func checkCloudKitStatus() async {
-        cloudKitStateString = await FavoriteService.getCloudState()
-        cloudKitReady = cloudKitStateString == "正常"
     }
 
     private func refreshCacheSize() async {

@@ -250,7 +250,9 @@ class FavoriteListViewController: UIViewController {
         if viewModel.isLoading && filteredSections.isEmpty {
             // 仅在没有旧数据时显示骨架屏
             showSkeletonView()
-        } else if viewModel.cloudReturnError || !viewModel.cloudKitReady {
+        } else if viewModel.cloudReturnError {
+            // 仅在真实错误(未登录/拉取失败)时弹错误页。
+            // 关闭 iCloud 同步时 cloudKitReady 也为 false,但那是正常的纯本地状态,不该报错。
             showErrorView(message: viewModel.cloudKitStateString)
         } else if filteredSections.isEmpty {
             if searchText.isEmpty {
@@ -267,7 +269,9 @@ class FavoriteListViewController: UIViewController {
 
         if viewModel.isLoading {
             showSkeletonView()
-        } else if viewModel.cloudReturnError || !viewModel.cloudKitReady {
+        } else if viewModel.cloudReturnError {
+            // 仅在真实错误(未登录/拉取失败)时弹错误页。
+            // 关闭 iCloud 同步时 cloudKitReady 也为 false,但那是正常的纯本地状态,不该报错。
             showErrorView(message: viewModel.cloudKitStateString)
         } else if filteredSections.isEmpty {
             if searchText.isEmpty {

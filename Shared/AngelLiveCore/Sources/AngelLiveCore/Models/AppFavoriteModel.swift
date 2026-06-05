@@ -37,6 +37,21 @@ public final class AppFavoriteModel {
     }
     /// 最近一次收藏「云端同步」的错误(本地操作不受其影响)。非阻塞,供页面展示。
     public var lastSyncError: SyncError?
+
+    /// 三端统一的「数据同步」状态展示文案,设置页/同步页共用,避免各端各写一套。
+    /// 关同步 = 已关闭(仅本地);开启时按 syncStatus 走:同步中 / 已同步 / 具体原因。
+    public var syncStatusDisplayText: String {
+        guard favoriteICloudSyncEnabled else { return "已关闭(仅本地)" }
+        switch syncStatus {
+        case .syncing:
+            return "正在同步..."
+        case .success:
+            return "已同步"
+        case .error, .notLoggedIn:
+            return cloudKitStateString
+        }
+    }
+
     private var isSyncing: Bool = false  // 添加同步状态标记
 
     private enum Keys {
