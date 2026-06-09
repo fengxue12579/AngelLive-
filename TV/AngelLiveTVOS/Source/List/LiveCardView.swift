@@ -14,10 +14,10 @@ struct LiveCardView: View {
 
     @Environment(LiveViewModel.self) var liveViewModel
     @Environment(AppState.self) var appViewModel
-    @State var index: Int
+    let index: Int
     var externalFocusState: FocusState<FocusableField?>.Binding?
     var onMoveCommand: ((MoveCommandDirection) -> Void)? = nil
-    @State var currentLiveModel: LiveModel?
+    var currentLiveModel: LiveModel? = nil
     @State private var isLive: Bool = false
     @FocusState private var internalFocusState: FocusableField?
 

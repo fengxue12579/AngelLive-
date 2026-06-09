@@ -11,7 +11,9 @@ import CloudKit
 
 public struct LiveModel: Identifiable, Codable, Equatable, Hashable, Sendable {
 
-    public var id = UUID()
+    /// 稳定身份:平台 + roomId。与 `AppFavoriteModel.favoriteUniqueKey` 的主键口径一致,
+    /// roomId 跨平台并不唯一,必须带上 liveType 才能区分(否则会跨平台串房)。
+    public var id: String { "\(liveType.rawValue)-\(roomId)" }
     public let userName: String
     public let roomTitle: String
     public let roomCover: String
@@ -39,11 +41,12 @@ public struct LiveModel: Identifiable, Codable, Equatable, Hashable, Sendable {
     }
 
     public static func ==(lhs: LiveModel, rhs: LiveModel) -> Bool {
-        return lhs.roomId == rhs.roomId
+        return lhs.liveType == rhs.liveType && lhs.roomId == rhs.roomId
     }
 
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
+        hasher.combine(liveType)
+        hasher.combine(roomId)
     }
     
     public func liveStateFormat() -> String {
