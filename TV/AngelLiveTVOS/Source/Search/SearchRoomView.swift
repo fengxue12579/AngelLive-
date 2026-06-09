@@ -86,8 +86,8 @@ struct SearchRoomView: View {
             } else {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.fixed(370), spacing: 50), GridItem(.fixed(370), spacing: 50), GridItem(.fixed(370), spacing: 50), GridItem(.fixed(370), spacing: 50)], alignment: .center, spacing: 50) {
-                        ForEach(liveViewModel.roomList.indices, id: \.self) { index in
-                            LiveCardView(index: index)
+                        ForEach(Array(liveViewModel.roomList.enumerated()), id: \.element.id) { index, room in
+                            LiveCardView(index: index, currentLiveModel: room)
                                 .environment(liveViewModel)
                                 .frame(width: 370, height: 280)
                         }

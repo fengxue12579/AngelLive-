@@ -8,7 +8,10 @@
 import Foundation
 
 public struct FavoriteLiveSectionModel: Identifiable, Sendable {
-    public var id = UUID()
+    /// 稳定身份:title 即逻辑分组键(平台名 / 直播状态名),在两种分组样式下都唯一且稳定。
+    /// 不用随机 UUID——否则每次同步重建分组都被 SwiftUI 当成全新 section,导致焦点重置、整段重排动画。
+    /// 不用 type——liveState 分组里 type 取自"该状态下第一条房间"的平台,会随排序在多次同步间漂移。
+    public var id: String { title }
     public var roomList: [LiveModel] = []
     public var title: String = ""
     public var type: LiveType = .placeholder

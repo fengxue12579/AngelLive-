@@ -90,13 +90,13 @@ struct SidebarView: View {
                     .bold()
                     .padding(.top, 20)
 
-                ForEach(liveViewModel.categories.indices, id: \.self) { index in
+                ForEach(Array(liveViewModel.categories.enumerated()), id: \.element.id) { index, category in
                     SidebarMenuItem(
                         focusState: $focusState,
-                        icon: liveViewModel.categories[index].icon,
-                        title: liveViewModel.categories[index].title,
+                        icon: category.icon,
+                        title: category.title,
                         index: index,
-                        subItems: liveViewModel.categories[index].subList
+                        subItems: category.subList
                     )
                     .environment(liveViewModel)
                     .padding(.top, index == 0 ? 20 : 0)

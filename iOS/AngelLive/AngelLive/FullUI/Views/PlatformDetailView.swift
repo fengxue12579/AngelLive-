@@ -136,7 +136,7 @@ struct PlatformDetailView: View {
     private var mainCategoryNavigator: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 16) {
-                ForEach(viewModel.categories.indices, id: \.self) { index in
+                ForEach(Array(viewModel.categories.enumerated()), id: \.element.id) { index, _ in
                     mainCategoryButton(for: index)
                 }
             }

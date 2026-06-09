@@ -73,8 +73,8 @@ struct FavoriteMainView: View {
                                         alignment: .center,
                                         spacing: 50
                                     ) {
-                                        ForEach(section.roomList.indices, id: \.self) { index in
-                                            LiveCardView(index: index, currentLiveModel: section.roomList[index])
+                                        ForEach(Array(section.roomList.enumerated()), id: \.element.id) { index, room in
+                                            LiveCardView(index: index, currentLiveModel: room)
                                                 .environment(liveViewModel)
                                                 .environment(appViewModel)
                                                 .frame(width: 370, height: 280)
@@ -93,8 +93,8 @@ struct FavoriteMainView: View {
 
                                     ScrollView(.horizontal) {
                                         LazyHGrid(rows: [GridItem(.fixed(280), spacing: 50, alignment: .leading)], spacing: 50) {
-                                            ForEach(section.roomList.indices, id: \.self) { index in
-                                                LiveCardView(index: index, currentLiveModel: section.roomList[index])
+                                            ForEach(Array(section.roomList.enumerated()), id: \.element.id) { index, room in
+                                                LiveCardView(index: index, currentLiveModel: room)
                                                     .environment(liveViewModel)
                                                     .environment(appViewModel)
                                                     .frame(width: 370, height: 280)
