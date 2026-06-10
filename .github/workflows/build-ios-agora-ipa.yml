@@ -107,7 +107,7 @@ jobs:
           File.write(path, text)
           RUBY
 
-          - name: Disable iCloud entitlements
+      - name: Disable iCloud entitlements
         run: |
           cat > "iOS/AngelLive-NoCloud.entitlements" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
