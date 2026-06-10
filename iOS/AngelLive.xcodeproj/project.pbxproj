@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		FB6991472EA77D7D00F29F0E /* JXSegmentedView in Frameworks */ = {isa = PBXBuildFile; productRef = FB6991462EA77D7D00F29F0E /* JXSegmentedView */; };
+		FBA901012EF000000000A901 /* RtcBasic in Frameworks */ = {isa = PBXBuildFile; productRef = FBA901002EF000000000A900 /* RtcBasic */; };
 		FBA85D9D2EA5E78600D976E1 /* SharedAssets in Frameworks */ = {isa = PBXBuildFile; productRef = FBA85D9C2EA5E78600D976E1 /* SharedAssets */; };
 		FBA85D9F2EA5E83800D976E1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FBA85D9E2EA5E83800D976E1 /* Assets.xcassets */; };
 		FBE22D662EE027BB00866D4B /* Package.resolved in Resources */ = {isa = PBXBuildFile; fileRef = FBE22D652EE027BB00866D4B /* Package.resolved */; };
@@ -50,6 +51,7 @@
 				FBA85D9D2EA5E78600D976E1 /* SharedAssets in Frameworks */,
 				FBF74A6F2EA1F99B00591EEA /* AngelLiveCore in Frameworks */,
 				FB6991472EA77D7D00F29F0E /* JXSegmentedView in Frameworks */,
+				FBA901012EF000000000A901 /* RtcBasic in Frameworks */,
 				FBF74A712EA1F99B00591EEA /* AngelLiveDependencies in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -107,6 +109,7 @@
 				FBF74A702EA1F99B00591EEA /* AngelLiveDependencies */,
 				FBA85D9C2EA5E78600D976E1 /* SharedAssets */,
 				FB6991462EA77D7D00F29F0E /* JXSegmentedView */,
+				FBA901002EF000000000A900 /* RtcBasic */,
 			);
 			productName = AngelLive;
 			productReference = FB7077B32EA1D6450059AFD9 /* AngelLive.app */;
@@ -138,6 +141,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				FB6991452EA77D7D00F29F0E /* XCRemoteSwiftPackageReference "JXSegmentedView" */,
+				FBA900FF2EF000000000A899 /* XCRemoteSwiftPackageReference "AgoraRtcEngine_iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FB7077B42EA1D6450059AFD9 /* Products */;
@@ -207,7 +211,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = HZG263D38Y;
+				DEVELOPMENT_TEAM = 9W5PQNS587;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -272,7 +276,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = HZG263D38Y;
+				DEVELOPMENT_TEAM = 9W5PQNS587;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -305,7 +309,7 @@
 				CODE_SIGN_ENTITLEMENTS = AngelLive/AngelLive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = HZG263D38Y;
+				DEVELOPMENT_TEAM = 9W5PQNS587;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AngelLive/Info.plist;
@@ -322,7 +326,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 2.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.idog.AngelLive;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cabbage6876.seaweed9280;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -346,7 +350,7 @@
 				CODE_SIGN_ENTITLEMENTS = AngelLive/AngelLive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = HZG263D38Y;
+				DEVELOPMENT_TEAM = 9W5PQNS587;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AngelLive/Info.plist;
@@ -363,7 +367,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 2.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.idog.AngelLive;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cabbage6876.seaweed9280;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -410,6 +414,14 @@
 				minimumVersion = 1.4.1;
 			};
 		};
+		FBA900FF2EF000000000A899 /* XCRemoteSwiftPackageReference "AgoraRtcEngine_iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/AgoraIO/AgoraRtcEngine_iOS.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.5.3;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -417,6 +429,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FB6991452EA77D7D00F29F0E /* XCRemoteSwiftPackageReference "JXSegmentedView" */;
 			productName = JXSegmentedView;
+		};
+		FBA901002EF000000000A900 /* RtcBasic */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FBA900FF2EF000000000A899 /* XCRemoteSwiftPackageReference "AgoraRtcEngine_iOS" */;
+			productName = RtcBasic;
 		};
 		FBA85D9C2EA5E78600D976E1 /* SharedAssets */ = {
 			isa = XCSwiftPackageProductDependency;
