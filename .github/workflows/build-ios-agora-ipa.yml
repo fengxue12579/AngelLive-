@@ -45,13 +45,13 @@ jobs:
 
       - name: Resolve Swift packages
         run: |
-          xcodebuild -resolvePackageDependencies \
+          USE_VLC=1 xcodebuild -resolvePackageDependencies \
             -workspace AngelLive.xcworkspace \
             -scheme AngelLive
 
       - name: Archive
         run: |
-          xcodebuild archive \
+          USE_VLC=1 xcodebuild archive \
             -workspace AngelLive.xcworkspace \
             -scheme AngelLive \
             -configuration Release \
